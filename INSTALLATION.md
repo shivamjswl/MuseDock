@@ -2,7 +2,7 @@
 
 Use the complete, standalone APK from the **downloads** branch:
 
-[Download MuseDock 0.8.0](https://raw.githubusercontent.com/shivamjswl/Soundzy/downloads/MuseDock-0.8.0.apk)
+[Download MuseDock 0.8.0](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.8.0.apk)
 
 The APK declares minimum SDK 29 (Android 10) and target SDK 37 (Android 17), with no maximum SDK and no device-ABI restriction. It has no packaged native `.so` libraries. Its signing certificate matches the previously supplied APK, and its versionCode is 8, so Android can update those versions while preserving data. This is a release-mode, non-debuggable APK signed with the existing development key; it is not a Play Store release.
 

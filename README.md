@@ -2,7 +2,7 @@
 
 Developed by **Shivam Jaiswal**. Version **0.8.0**, for **Android 10 / API 29 and newer**.
 
-[Download APK](https://raw.githubusercontent.com/shivamjswl/soundzy/downloads/MuseDock-0.8.0.apk) · [Complete corresponding source archive](https://raw.githubusercontent.com/shivamjswl/soundzy/downloads/MuseDock-0.8.0-source.zip)
+[Download APK](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.8.0.apk) · [Complete corresponding source archive](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.8.0-source.zip)
 
 MuseDock is a native Android music player developed by Shivam Jaiswal. Search songs and albums, build playlists and keep offline copies on your device.
 

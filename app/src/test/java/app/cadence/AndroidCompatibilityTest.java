@@ -19,7 +19,7 @@ public final class AndroidCompatibilityTest {
     private MuseDockApp app;
     private final Track first=new Track("testtone001","Downloaded song one","Test artist","",120),second=new Track("testtone002","Downloaded song two","Test artist","",180);
     @Before public void setup(){
-        app=(MuseDockApp)RuntimeEnvironment.getApplication();
+        app=(MuseDockApp)RuntimeEnvironment.getApplication();app.catalog=(query,page,mode)->new MusicCatalog.Result(java.util.List.of(),java.util.List.of(),null,query);
         app.playlists=new PlaylistSource(){public List<Suggestion> suggest(String query){return List.of();}public Tracks playlist(String url,org.schabi.newpipe.extractor.Page page){return new Tracks("",List.of(),null);}};
         // Android grants the app its declared signature permission at install; simulate that grant in Robolectric.
         Shadows.shadowOf(app).grantPermissions(app.getPackageName()+".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");

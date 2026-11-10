@@ -31,7 +31,7 @@ public final class YouTubeRepository implements PlaylistSource, MusicCatalog {
             }
         });
     }
-    @Override public synchronized MusicCatalog.Result search(String query,Page next,MusicCatalog.Mode mode) throws Exception {
+    @Override public MusicCatalog.Result search(String query,Page next,MusicCatalog.Mode mode) throws Exception {
         String id=VideoIds.parse(query);
         if(id!=null){StreamInfo i=StreamInfo.getInfo(ServiceList.YouTube,VideoIds.url(id));return new MusicCatalog.Result(List.of(from(i)),List.of(),null,query);}
         var q=ServiceList.YouTube.getSearchQHFactory().fromQuery(query,List.of(mode.filter),"");
@@ -48,7 +48,7 @@ public final class YouTubeRepository implements PlaylistSource, MusicCatalog {
         }
         return new MusicCatalog.Result(out,albums,Page.isValid(more)?more:null,query);
     }
-    @Override public synchronized List<Suggestion> suggest(String query) throws Exception {
+    @Override public List<Suggestion> suggest(String query) throws Exception {
         var search=ServiceList.YouTube.getSearchQHFactory().fromQuery(query,List.of("music_playlists"),"");
         SearchInfo info=SearchInfo.getInfo(ServiceList.YouTube,search);
         LinkedHashMap<String,Suggestion> found=new LinkedHashMap<>();
@@ -59,7 +59,7 @@ public final class YouTubeRepository implements PlaylistSource, MusicCatalog {
         }
         return new ArrayList<>(found.values());
     }
-    @Override public synchronized Tracks playlist(String value,Page next) throws Exception {
+    @Override public Tracks playlist(String value,Page next) throws Exception {
         String url=PlaylistLinks.canonical(value);if(url==null)throw new IllegalArgumentException("Use a valid YouTube playlist link.");
         List<StreamInfoItem> items;Page more;String title="";
         if(next==null){PlaylistInfo info=PlaylistInfo.getInfo(ServiceList.YouTube,url);title=info.getName();items=info.getRelatedItems();more=info.getNextPage();}

@@ -25,7 +25,7 @@ public final class MuseDockFeaturesTest {
     @Before public void setup(){
         app=(MuseDockApp)RuntimeEnvironment.getApplication();Shadows.shadowOf(app).grantPermissions(app.getPackageName()+".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");Shadows.shadowOf(app).declareComponentUnbindable(new ComponentName(app,PlaybackService.class));
         app.playlists=new PlaylistSource(){public List<Suggestion> suggest(String q){return List.of();}public Tracks playlist(String url,Page next){return new Tracks("Original test album",List.of(song),null);}};
-        app.catalog=(query,next,mode)->{requested=mode;return mode==MusicCatalog.Mode.ALBUMS?new MusicCatalog.Result(List.of(),next==null?List.of(album("PL_first","Original test album")):List.of(album("PL_first","Original test album"),album("PL_second","Second test album")),next==null?new Page("next"):null,query):new MusicCatalog.Result(List.of(song),List.of(),null,query);};
+        app.catalog=(query,next,mode)->{if(query.equals("Test artist")||query.equals("popular albums"))requested=mode;return mode==MusicCatalog.Mode.ALBUMS?new MusicCatalog.Result(List.of(),next==null?List.of(album("PL_first","Original test album")):List.of(album("PL_first","Original test album"),album("PL_second","Second test album")),next==null?new Page("next"):null,query):new MusicCatalog.Result(List.of(song),List.of(),null,query);};
     }
     private PlaylistSource.Suggestion album(String id,String name){return new PlaylistSource.Suggestion("https://www.youtube.com/playlist?list="+id,name,"Test artist","",1);}
     @After public void cleanup(){app.equalizer.release();app.library.close();}

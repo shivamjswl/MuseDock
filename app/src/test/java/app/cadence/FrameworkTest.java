@@ -18,7 +18,7 @@ public final class FrameworkTest {
     private final Track one=new Track("testtone001","First song","Test artist","",120);
     private final Track two=new Track("testtone002","Second song","Test artist","",180);
     private FakePlaylists source;
-    @Before public void setup(){app=(MuseDockApp)RuntimeEnvironment.getApplication();source=new FakePlaylists();app.playlists=source;}
+    @Before public void setup(){app=(MuseDockApp)RuntimeEnvironment.getApplication();app.catalog=(query,page,mode)->new MusicCatalog.Result(java.util.List.of(),java.util.List.of(),null,query);source=new FakePlaylists();app.playlists=source;}
     private final class FakePlaylists implements PlaylistSource {
         boolean fail=false;
         @Override public java.util.List<Suggestion> suggest(String query)throws Exception{
@@ -54,7 +54,7 @@ public final class FrameworkTest {
         String id=app.library.createPlaylist("My evening mix");app.library.add(id,one);
         try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){
             MainActivity activity=controller.get();View root=activity.getWindow().getDecorView();
-            assertNotNull(find(root,"Your daily mix."));capture(root,"home-framework.png");click(root,"Library");assertNotNull(find(root,"My evening mix"));capture(root,"library-framework.png");
+            assertNotNull(find(root,"Made for you"));capture(root,"home-framework.png");click(root,"Library");assertNotNull(find(root,"My evening mix"));capture(root,"library-framework.png");
             click(root,"Offline");assertNotNull(find(root,"0 songs offline"));assertNotNull(find(root,"Find songs"));
             click(root,"Search");assertNotNull(find(root,"Find your next listen."));
         }

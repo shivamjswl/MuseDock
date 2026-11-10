@@ -24,7 +24,7 @@ public final class AppearanceTest {
     @Before public void setup(){
         app=(MuseDockApp)RuntimeEnvironment.getApplication();app.getSharedPreferences("musedock.preferences",0).edit().clear().commit();Shadows.shadowOf(app).grantPermissions(app.getPackageName()+".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");Shadows.shadowOf(app).declareComponentUnbindable(new ComponentName(app,PlaybackService.class));
         app.playlists=new PlaylistSource(){public List<Suggestion> suggest(String q){return List.of();}public Tracks playlist(String q,org.schabi.newpipe.extractor.Page next){return new Tracks("",List.of(),null);}};
-        app.catalog=(q,next,mode)->{requested=q;return new MusicCatalog.Result(List.of(song),List.of(),next==null?new org.schabi.newpipe.extractor.Page("test-next"):null,q);};
+        app.catalog=(q,next,mode)->{if(q.endsWith("acoustic songs"))requested=q;return new MusicCatalog.Result(List.of(song),List.of(),next==null?new org.schabi.newpipe.extractor.Page("test-next"):null,q);};
     }
     @After public void cleanup(){app.library.close();app.equalizer.release();}
     @Test public void libraryUsesSmallerTypeAndMuseDockBranding(){

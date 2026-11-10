@@ -6,6 +6,7 @@ import androidx.media3.common.MediaMetadata;
 import android.net.Uri;
 
 public record Track(String id, String title, String artist, String artwork, long duration) {
+    public String artworkUrl(){return artwork==null||artwork.isBlank()?(VideoIds.valid(id)?"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg":""):artwork;}
     public String url() { return VideoIds.url(id); }
     public MediaItem mediaItem(String localPath) {
         Bundle extras = new Bundle();

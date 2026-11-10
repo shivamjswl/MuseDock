@@ -36,3 +36,7 @@ Upstream extractor and nanojson source headers are retained. The complete-source
 ## Current provider integration
 
 YouTube Music catalog support uses the already-pinned NewPipe Extractor. MuseDock 0.7.0 removes the lyrics provider integration and does not bundle a lyric corpus. Appearance and music-language preferences add no third-party runtime SDKs.
+
+## MuseDock 0.8.0
+
+Recommendation ranking, playlist tools, curve UI and stereo balance processing are original application code. The stereo pipeline uses the existing AndroidX Media3 dependency and native Android audio effects; no Spotify SDK, recommendation model, artwork corpus, or additional runtime library is bundled. Native-render artwork fixtures are original generated test graphics, not real album covers.

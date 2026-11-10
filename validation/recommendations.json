@@ -1,0 +1,86 @@
+{
+  "ui_cases": [
+    {
+      "test": "personalizedHomeMixPlaylistAndSoundRender",
+      "passed": true
+    },
+    {
+      "test": "aNewSearchChangesTheHomeTasteAndPlaylistQueries[29]",
+      "passed": true
+    },
+    {
+      "test": "advancedSoundControlsSaveAndReloadNamedPresets[29]",
+      "passed": true
+    },
+    {
+      "test": "moodTilesShowBitmapArtworkAndOpenDifferentSongs[29]",
+      "passed": true
+    },
+    {
+      "test": "playlistDetailsPinDuplicateAndBulkRemovalWorkThroughUi[29]",
+      "passed": true
+    },
+    {
+      "test": "playlistSuggestionsCanBeAddedWithoutDuplicateMembers[29]",
+      "passed": true
+    },
+    {
+      "test": "aNewSearchChangesTheHomeTasteAndPlaylistQueries",
+      "passed": true
+    },
+    {
+      "test": "advancedSoundControlsSaveAndReloadNamedPresets",
+      "passed": true
+    },
+    {
+      "test": "moodTilesShowBitmapArtworkAndOpenDifferentSongs",
+      "passed": true
+    },
+    {
+      "test": "playlistDetailsPinDuplicateAndBulkRemovalWorkThroughUi",
+      "passed": true
+    },
+    {
+      "test": "playlistSuggestionsCanBeAddedWithoutDuplicateMembers",
+      "passed": true
+    }
+  ],
+  "migration_and_library_cases": [
+    {
+      "test": "playlistToolsPersistOrderingDescriptionsPinsAndUniqueMerges[29]",
+      "passed": true
+    },
+    {
+      "test": "failedBatchAdditionRollsBackPlaylistUpdates[29]",
+      "passed": true
+    },
+    {
+      "test": "versionOneMigrationKeepsTracksPlaylistsOfflineAndHistory[29]",
+      "passed": true
+    },
+    {
+      "test": "searchesAreBoundedLinksExcludedAndCacheIsTasteScoped[29]",
+      "passed": true
+    },
+    {
+      "test": "playlistToolsPersistOrderingDescriptionsPinsAndUniqueMerges",
+      "passed": true
+    },
+    {
+      "test": "failedBatchAdditionRollsBackPlaylistUpdates",
+      "passed": true
+    },
+    {
+      "test": "versionOneMigrationKeepsTracksPlaylistsOfflineAndHistory",
+      "passed": true
+    },
+    {
+      "test": "searchesAreBoundedLinksExcludedAndCacheIsTasteScoped",
+      "passed": true
+    }
+  ],
+  "ranking_cases": 7,
+  "audio_pcm_cases": 2,
+  "live_provider_validation": "not executed: current cloud policy blocks required hosts",
+  "spotify_page_review": "proxy CONNECT 403; domain proposal pending user review"
+}

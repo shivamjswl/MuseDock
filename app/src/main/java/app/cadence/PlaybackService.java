@@ -23,14 +23,20 @@ public final class PlaybackService extends MediaSessionService {
             String local=app.library.offline(id);
             return spec.withUri(local==null?Uri.parse(app.youtube.resolve(id)):Uri.fromFile(new java.io.File(local)));
         });
-        player=new ExoPlayer.Builder(this).setMediaSourceFactory(new DefaultMediaSourceFactory(resolving)).build();
+        androidx.media3.exoplayer.DefaultRenderersFactory renderers=new androidx.media3.exoplayer.DefaultRenderersFactory(this){
+            @Override protected androidx.media3.exoplayer.audio.AudioSink buildAudioSink(android.content.Context context,boolean floating,boolean playbackParams){return new androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context).setEnableFloatOutput(false).setEnableAudioTrackPlaybackParams(playbackParams).setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[]{new StereoBalanceProcessor(()->app.equalizer.enabled()?app.equalizer.balance():0)}).build();}
+        };
+        player=new ExoPlayer.Builder(this,renderers).setMediaSourceFactory(new DefaultMediaSourceFactory(resolving)).build();
         player.setAudioAttributes(new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).setUsage(C.USAGE_MEDIA).build(),true);
         player.setHandleAudioBecomingNoisy(true);
-        player.setWakeMode(C.WAKE_MODE_LOCAL);
+        player.setWakeMode(C.WAKE_MODE_LOCAL);app.equalizer.setGainListener(gain->player.setVolume(gain));
         player.addListener(new Player.Listener(){
+            private boolean counted;
+            private void recordListening(){MediaItem item=player.getCurrentMediaItem();if(!counted&&player.isPlaying()&&item!=null){Track track=app.library.track(item.mediaId);if(track!=null){app.library.played(track);counted=true;sendBroadcast(new android.content.Intent("app.musedock.TASTE_CHANGED").setPackage(getPackageName()));}}}
+            @Override public void onIsPlayingChanged(boolean playing){recordListening();}
             @Override public void onAudioSessionIdChanged(int id){app.equalizer.attach(id);}
             @Override public void onMediaItemTransition(MediaItem item,int reason){
-                if(item!=null){Track t=app.library.track(item.mediaId);if(t!=null)app.library.played(t);}
+                counted=false;recordListening();
             }
             @Override public void onPlayerError(PlaybackException error){
                 MediaItem current=player.getCurrentMediaItem();if(current!=null)app.youtube.invalidate(current.mediaId);
@@ -48,5 +54,5 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onTaskRemoved(android.content.Intent intent){
         if(!player.getPlayWhenReady()||player.getMediaItemCount()==0)stopSelf();
     }
-    @Override public void onDestroy(){if(session!=null)session.release();if(player!=null)player.release();MuseDockApp.of(this).equalizer.release();super.onDestroy();}
+    @Override public void onDestroy(){MuseDockApp.of(this).equalizer.setGainListener(null);if(session!=null)session.release();if(player!=null)player.release();MuseDockApp.of(this).equalizer.release();super.onDestroy();}
 }

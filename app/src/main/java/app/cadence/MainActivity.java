@@ -30,9 +30,10 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private Player player;
     private ListenableFuture<MediaController> connection;
     private final ExecutorService network=Executors.newSingleThreadExecutor();
+    private final ExecutorService discovery=Executors.newFixedThreadPool(2);
     private final ExecutorService files=Executors.newSingleThreadExecutor();
     private final ExecutorService images=Executors.newFixedThreadPool(3);
-    private final android.util.LruCache<String,Bitmap> imageCache=new android.util.LruCache<String,Bitmap>(12*1024*1024){@Override protected int sizeOf(String k,Bitmap v){return v.getByteCount();}};
+    private final Map<String,Long> artworkFailures=new ConcurrentHashMap<>();
     private final Handler handler=new Handler(Looper.getMainLooper());
     private String tab="home",playlistId=null,playlistName="",query="";
     private final ArrayList<Track> results=new ArrayList<>();
@@ -44,9 +45,18 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private int searchVersion=0;
     private String searchError="";
     private String resultQuery="";
-    private LinearLayout suggestionsContainer;
+    private LinearLayout suggestionsContainer,discoveryContainer;
+    private final EnumMap<Recommendations.Mood,List<Track>> shelves=new EnumMap<>(Recommendations.Mood.class);
+    private final EnumMap<Recommendations.Mood,String> shelfErrors=new EnumMap<>(Recommendations.Mood.class);
+    private final Set<Recommendations.Mood> shelfLoading=EnumSet.noneOf(Recommendations.Mood.class);
+    private final EnumMap<Recommendations.Mood,Future<?>> discoveryJobs=new EnumMap<>(Recommendations.Mood.class);
+    private long discoveryLoadedAt;
+    private int discoveryVersion=0;private String discoveryFingerprint="";private Recommendations.Mood openedMood=Recommendations.Mood.FOR_YOU;
+    private String addTargetPlaylistId=null,playlistRecId="";private final List<Track> playlistAdditions=new ArrayList<>();private boolean playlistRecLoading;private int playlistRecVersion,playlistRecRefresh;
+
     private final ArrayList<PlaylistSource.Suggestion> suggestions=new ArrayList<>();
     private boolean suggestionsLoading=false;
+    private String suggestionsFingerprint="";
     private String suggestionsError="",suggestionsQuery="",suggestionFilter="For you";
     private int suggestionsVersion=0,remoteVersion=0;
     private Future<?> suggestionsJob,remoteJob;
@@ -59,7 +69,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private Dialog nowDialog;
     private QueuePanel queuePanel;
     private GoogleAccount googleAccount;
-    private boolean closing=false;
+    private volatile boolean closing=false;
     private String pendingExport;
     private static final int PICK_HISTORY=81,EXPORT_AUDIO=82;
     private TextView nowTitle,nowArtist,nowStatus,elapsed,total,miniTitle,miniArtist;
@@ -68,7 +78,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private SeekBar seek;
     private Icons playIcon,likeIcon,shuffleIcon,repeatIcon,miniPlay;
     private boolean dragging=false;
-    private final BroadcastReceiver downloadsChanged=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if(tab.equals("offline"))render();}};
+    private final BroadcastReceiver downloadsChanged=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if("app.musedock.TASTE_CHANGED".equals(i.getAction())){if(tab.equals("home")){refreshDiscovery(false);loadSuggestions(recommendationQuery());}}else if(tab.equals("offline"))render();}};
     private final Player.Listener listener=new Player.Listener(){
         @Override public void onEvents(Player p,Player.Events events){updateMini();updateNow();}
         @Override public void onPlayerError(PlaybackException error){toast("Playback failed. Check your connection, then tap Play to retry.");}
@@ -78,7 +88,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         palette=ThemePalette.current(this);setTheme(palette.style());super.onCreate(state);app=MuseDockApp.of(this);
         BG=palette.background();SURFACE=palette.surface();RAISED=palette.raised();FG=palette.foreground();MUTED=palette.muted();GREEN=palette.accent();INK=palette.onAccent();
         WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(palette.light());WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightNavigationBars(palette.light());
-        if(state!=null){searchMode=MusicCatalog.Mode.valueOf(state.getString("searchMode","SONGS"));tab=state.getString("tab","home");query=state.getString("query","");playlistId=state.getString("playlist");playlistName=state.getString("playlistName","");pendingExport=state.getString("pendingExport");}
+        if(state!=null){addTargetPlaylistId=state.getString("addTarget");openedMood=Recommendations.Mood.valueOf(state.getString("mood","FOR_YOU"));searchMode=MusicCatalog.Mode.valueOf(state.getString("searchMode","SONGS"));tab=state.getString("tab","home");query=state.getString("query","");playlistId=state.getString("playlist");playlistName=state.getString("playlistName","");pendingExport=state.getString("pendingExport");}
         if(getIntent().getBooleanExtra("offline",false))tab="offline";
         WindowCompat.setDecorFitsSystemWindows(getWindow(),false);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -86,17 +96,18 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         connection=new MediaController.Builder(this,new SessionToken(this,new ComponentName(this,PlaybackService.class))).buildAsync();
         connection.addListener(()->{if(closing||isDestroyed())return;try{attachPlayer(connection.get());}catch(Exception e){toast("Could not connect to the audio player. Restart MuseDock to retry.");}},getMainExecutor());
         getOnBackPressedDispatcher().addCallback(this,new androidx.activity.OnBackPressedCallback(true){@Override public void handleOnBackPressed(){goBack();}});
-        androidx.core.content.ContextCompat.registerReceiver(this,downloadsChanged,new IntentFilter(OfflineService.CHANGED),androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        androidx.core.content.ContextCompat.registerReceiver(this,downloadsChanged,tasteFilter(),androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         handler.post(ticker);
-        handler.post(()->loadSuggestions(recommendationQuery()));
+        handler.post(()->{loadSuggestions(recommendationQuery());refreshDiscovery(false);});
     }
-    @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);s.putString("searchMode",searchMode.name());s.putString("tab",tab);s.putString("query",query);s.putString("playlist",playlistId);s.putString("playlistName",playlistName);s.putString("pendingExport",pendingExport);}
+    @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);s.putString("addTarget",addTargetPlaylistId);s.putString("mood",openedMood.name());s.putString("searchMode",searchMode.name());s.putString("tab",tab);s.putString("query",query);s.putString("playlist",playlistId);s.putString("playlistName",playlistName);s.putString("pendingExport",pendingExport);}
     @Override protected void onDestroy(){
         closing=true;if(equalizerPanel!=null)equalizerPanel.dismiss();if(googleAccount!=null)googleAccount.cancel();if(queuePanel!=null)queuePanel.dismiss();
-        handler.removeCallbacksAndMessages(null);unregisterReceiver(downloadsChanged);network.shutdownNow();files.shutdownNow();images.shutdownNow();
+        handler.removeCallbacksAndMessages(null);unregisterReceiver(downloadsChanged);network.shutdownNow();discovery.shutdownNow();files.shutdownNow();images.shutdownNow();
         if(player!=null)player.removeListener(listener);if(connection!=null)MediaController.releaseFuture(connection);if(nowDialog!=null)nowDialog.dismiss();super.onDestroy();
     }
     void attachPlayer(Player connected){if(player!=null)player.removeListener(listener);player=connected;player.addListener(listener);updateMini();}
+    private IntentFilter tasteFilter(){IntentFilter filter=new IntentFilter(OfflineService.CHANGED);filter.addAction("app.musedock.TASTE_CHANGED");return filter;}
     private void goBack(){
         if(tab.equals("youtube-playlist")){tab=remoteBack;render();}
         else if(playlistId!=null){playlistId=null;render();}
@@ -117,7 +128,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private android.graphics.drawable.Drawable selectable(){android.util.TypedValue out=new android.util.TypedValue();getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless,out,true);return getDrawable(out.resourceId);}
     private TextView button(String title,boolean primary,Runnable action){TextView b=label(title,14,primary?INK:FG,true);b.setGravity(Gravity.CENTER);b.setMinHeight(dp(48));b.setPadding(dp(18),dp(10),dp(18),dp(10));b.setBackground(primary?bg(GREEN,26):border(SURFACE,26));b.setOnClickListener(v->action.run());return b;}
     private void section(String title,String action,Runnable click){LinearLayout r=row();r.addView(text(title,21,FG,true),new LinearLayout.LayoutParams(0,-2,1));if(action!=null)r.addView(button(action,false,click));add(body,r,56);}
-    private void navigate(String target){tab=target;playlistId=null;hideKeyboard();render();}
+    private void navigate(String target){tab=target;playlistId=null;addTargetPlaylistId=null;hideKeyboard();render();if(target.equals("home")){refreshDiscovery(false);loadSuggestions(recommendationQuery());}}
     private void render(){
         root=column();root.setBackground(palette.backdrop());setContentView(root);
         ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{androidx.core.graphics.Insets sys=insets.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.displayCutout()|WindowInsetsCompat.Type.ime());v.setPadding(sys.left,sys.top,sys.right,sys.bottom);return insets;});root.requestApplyInsets();
@@ -125,11 +136,11 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         Icons mark=icon("wave",GREEN,null);header.addView(mark);TextView brand=text("MuseDock",22,FG,true);brand.setLetterSpacing(-.04f);header.addView(brand,new LinearLayout.LayoutParams(0,-2,1));Icons queue=icon("queue",MUTED,this::showQueue);queue.setContentDescription("View playback queue");header.addView(queue);Icons options=icon("more",MUTED,null);options.setContentDescription("MuseDock options");options.setOnClickListener(v->showOptions(options));header.addView(options);add(root,header,64);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);
         body=column();body.setPadding(dp(22),dp(12),dp(22),dp(28));scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        switch(tab){case "search"->searchScreen();case "library"->{if(playlistId==null)libraryScreen();else playlistScreen();}case "offline"->offlineScreen();case "youtube-playlist"->remotePlaylistScreen();case "account"->accountScreen();case "settings"->settingsScreen();default->homeScreen();}
+        switch(tab){case "search"->searchScreen();case "library"->{if(playlistId==null)libraryScreen();else playlistScreen();}case "offline"->offlineScreen();case "youtube-playlist"->remotePlaylistScreen();case "account"->accountScreen();case "settings"->settingsScreen();case "mix"->mixScreen();default->homeScreen();}
         mini=column();mini.setPadding(dp(10),0,dp(10),dp(4));add(root,mini,-2);updateMini();
         nav=row();nav.setPadding(dp(8),dp(4),dp(8),dp(6));nav.setBackgroundColor(BG);
         String[][] tabs={{"home","home","Listen"},{"search","search","Search"},{"library","library","Library"},{"offline","download","Offline"}};
-        for(String[] t:tabs){LinearLayout item=column();item.setGravity(Gravity.CENTER);boolean active=t[0].equals(tab)||(t[0].equals("home")&&tab.equals("youtube-playlist"));Icons i=icon(t[1],active?GREEN:MUTED,null);item.addView(i,new LinearLayout.LayoutParams(dp(32),dp(30)));TextView name=label(t[2],11,active?GREEN:MUTED,active);name.setGravity(Gravity.CENTER);item.addView(name);item.setContentDescription(t[2]);item.setOnClickListener(v->navigate(t[0]));nav.addView(item,new LinearLayout.LayoutParams(0,dp(56),1));}
+        for(String[] t:tabs){LinearLayout item=column();item.setGravity(Gravity.CENTER);boolean active=t[0].equals(tab)||(t[0].equals("home")&&(tab.equals("youtube-playlist")||tab.equals("mix")));Icons i=icon(t[1],active?GREEN:MUTED,null);FrameLayout bubble=new FrameLayout(this);if(active)bubble.setBackground(bg(palette.selected(),24));bubble.addView(i,new FrameLayout.LayoutParams(dp(32),dp(30),Gravity.CENTER));item.addView(bubble,new LinearLayout.LayoutParams(dp(64),dp(30)));TextView name=label(t[2],11,active?GREEN:MUTED,active);name.setGravity(Gravity.CENTER);item.addView(name);item.setContentDescription(t[2]);item.setOnClickListener(v->navigate(t[0]));nav.addView(item,new LinearLayout.LayoutParams(0,dp(56),1));}
         add(root,nav,-2);
     }
     private void showOptions(View anchor){
@@ -144,7 +155,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         new AlertDialog.Builder(this).setTitle("Music language").setSingleChoiceItems(names,MusicLanguage.selected(this).ordinal(),(dialog,index)->{
             languages[index].save(this);dialog.dismiss();String currentQuery=query;++searchVersion;searching=false;results.clear();albumResults.clear();nextPage=null;
             if(tab.equals("search")&&!currentQuery.isBlank())startSearch(currentQuery,false);else render();
-            loadSuggestions(suggestionsQuery.isBlank()?recommendationQuery():suggestionsQuery);
+            refreshDiscovery(false);loadSuggestions(suggestionsQuery.isBlank()?recommendationQuery():suggestionsQuery);
         }).setNegativeButton("Cancel",null).show();
     }
     private void settingsScreen(){
@@ -158,20 +169,58 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         space(body,14);section("Your music",null,null);addLanguageChip();space(body,8);add(body,text("Your language preference guides song, album and playlist discovery. Some results may include other languages.",12,MUTED,false),-2);
     }
     private void homeScreen(){
-        TextView eyebrow=text("GOOD MUSIC. YOUR WAY.",10,GREEN,true);eyebrow.setLetterSpacing(.12f);add(body,eyebrow,-2);space(body,12);
-        TextView headline=text("Your daily mix.",30,FG,true);headline.setLineSpacing(0,.93f);headline.setLetterSpacing(-.055f);add(body,headline,-2);space(body,22);
-        FrameLayout hero=new FrameLayout(this);GradientDrawable gradient=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{palette.hero(),SURFACE,BG});gradient.setCornerRadius(dp(24));hero.setBackground(gradient);
-        RecordArt art=new RecordArt(this);FrameLayout.LayoutParams ap=new FrameLayout.LayoutParams(dp(215),dp(215),Gravity.END|Gravity.CENTER_VERTICAL);ap.setMarginEnd(-dp(28));hero.addView(art,ap);
-        LinearLayout copy=column();copy.setPadding(dp(22),dp(23),dp(12),dp(20));TextView tag=text("YOUR DAILY SOUNDTRACK",10,GREEN,true);tag.setLetterSpacing(.12f);copy.addView(tag);space(copy,12);copy.addView(text("Press play.\nStay a while.",24,FG,true));space(copy,8);copy.addView(text("Find a song. Make it yours.",12,MUTED,false));space(copy,15);TextView explore=button("Find your next favorite  →",true,()->navigate("search"));copy.addView(explore,new LinearLayout.LayoutParams(-2,dp(46)));hero.addView(copy,new FrameLayout.LayoutParams(-1,-1));add(body,hero,194);space(body,22);
-        addLanguageChip();space(body,10);
-        add(body,button("Browse albums",false,()->{searchMode=MusicCatalog.Mode.ALBUMS;startSearch(app.library.recent().isEmpty()?"popular albums":app.library.recent().get(0).artist(),false);}),48);space(body,16);
-        suggestionsContainer=column();add(body,suggestionsContainer,-2);drawSuggestions();space(body,18);
-        section("Made for your mood",null,null);add(body,text("Pick a starting point. Discover something good.",13,MUTED,false),-2);space(body,14);
-        String[][] moods={{"Late-night focus","Slow down. Tune in.","lofi beats music", "#39483B"},{"On repeat","The songs you come back to","indie pop music", "#4A3948"},{"Golden hour","A little warmth for your day","soul acoustic music", "#54432C"},{"Turn it up","Find your second wind","workout electronic music", "#293F50"}};
-        for(int j=0;j<4;j+=2){LinearLayout r=row();for(int k=j;k<j+2;k++){String[] m=moods[k];LinearLayout card=column();inset(card,16);card.setBackground(bg(ThemePalette.mix(android.graphics.Color.parseColor(m[3]),SURFACE,palette.light()?.87f:.40f),18));Icons music=icon("music",GREEN,null);card.addView(music);space(card,14);card.addView(text(m[0],17,FG,true));space(card,4);card.addView(text(m[1],11,MUTED,false));card.setOnClickListener(v->startSearch(m[2],false));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(164),1);if(k==j)cp.rightMargin=dp(12);r.addView(card,cp);}add(body,r,-2);space(body,12);}
-        space(body,10);section("Recently played",null,null);List<Track> recent=app.library.recent();
-        if(recent.isEmpty())empty("Your soundtrack starts here","Search for a favorite song. Your listening history will appear here.","search","Explore music",()->navigate("search"));
-        else for(Track t:recent)trackRow(body,t,recent,false);
+        TextView eyebrow=text("YOUR SOUND. ALWAYS EVOLVING.",10,GREEN,true);eyebrow.setLetterSpacing(.10f);add(body,eyebrow,-2);space(body,8);add(body,text("Made for you",30,FG,true),-2);space(body,8);add(body,text("A little familiar. A little unexpected.",13,MUTED,false),-2);space(body,18);addLanguageChip();space(body,18);
+        discoveryContainer=column();add(body,discoveryContainer,-2);drawDiscovery();space(body,18);suggestionsContainer=column();add(body,suggestionsContainer,-2);drawSuggestions();space(body,18);
+        add(body,button("Browse albums",false,()->{searchMode=MusicCatalog.Mode.ALBUMS;startSearch(app.library.recent().isEmpty()?"popular albums":app.library.recent().get(0).artist(),false);}),48);space(body,18);section("Recently played",null,null);List<Track> recent=app.library.recent();if(recent.isEmpty())empty("Your soundtrack starts here","Search or play a few favorites to personalize your home.","search","Explore music",()->navigate("search"));else for(Track t:recent)trackRow(body,t,recent,false);
+    }
+    private long recommendationRotation(){return getSharedPreferences("musedock.preferences",0).getLong("recommendationRotation",0);}
+    private Recommendations.Profile tasteProfile(){return Recommendations.profile(app.library,MusicLanguage.selected(this),recommendationRotation());}
+    private void refreshDiscovery(boolean force){
+        if(closing)return;if(force)getSharedPreferences("musedock.preferences",0).edit().putLong("recommendationRotation",recommendationRotation()+1).apply();
+        Recommendations.Profile profile=tasteProfile();String key=profile.fingerprint();if(!force&&key.equals(discoveryFingerprint)&&System.currentTimeMillis()-discoveryLoadedAt<6*60*60*1000L)return;discoveryFingerprint=key;discoveryLoadedAt=System.currentTimeMillis();int version=++discoveryVersion;
+        for(var job:discoveryJobs.values())job.cancel(true);discoveryJobs.clear();shelfErrors.clear();shelfLoading.clear();
+        for(Recommendations.Mood mood:Recommendations.Mood.values()){
+            String cacheScope=Recommendations.retrievalKey(profile,mood);boolean cacheHit=false;List<Track> cached=shelves.getOrDefault(mood,List.of());try{String data=app.library.cachedDiscovery(mood.name(),cacheScope);if(data!=null){cached=Recommendations.rank(profile,mood,Recommendations.decode(data),12);cacheHit=true;}}catch(Exception ignored){}
+            if(mood==Recommendations.Mood.REPEAT)cached=Recommendations.repeat(profile);shelves.put(mood,new ArrayList<>(cached));
+            if(mood==Recommendations.Mood.REPEAT||!force&&cacheHit)continue;shelfLoading.add(mood);
+            discoveryJobs.put(mood,discovery.submit(()->{
+                try{List<Track> songs=Recommendations.load(profile,mood,q->app.catalog.search(q,null,MusicCatalog.Mode.SONGS).tracks());if(closing||Thread.currentThread().isInterrupted())return;app.library.cacheDiscovery(mood.name(),cacheScope,Recommendations.encode(songs));runOnUiThread(()->{if(closing||version!=discoveryVersion)return;shelves.put(mood,songs);shelfLoading.remove(mood);drawDiscovery();if(tab.equals("mix")&&openedMood==mood)render();});}
+                catch(Exception error){runOnUiThread(()->{if(closing||version!=discoveryVersion)return;shelfLoading.remove(mood);shelfErrors.put(mood,"Couldn't refresh this mix. Check your connection and retry.");if(mood==Recommendations.Mood.FOR_YOU&&shelves.getOrDefault(mood,List.of()).isEmpty())shelves.put(mood,Recommendations.repeat(profile));drawDiscovery();if(tab.equals("mix")&&openedMood==mood)render();});}
+            }));
+        }
+        drawDiscovery();
+    }
+    private List<Track> shelfSongs(Recommendations.Mood mood){
+        List<Track> tracks=shelves.getOrDefault(mood,List.of());Set<String> hidden=app.library.hidden();
+        if(mood==Recommendations.Mood.FOR_YOU||mood==Recommendations.Mood.REPEAT)return tracks.stream().filter(t->!hidden.contains(t.id())).collect(java.util.stream.Collectors.toList());
+        Set<String> taken=new HashSet<>();for(var other:List.of(Recommendations.Mood.FOCUS,Recommendations.Mood.CHILL,Recommendations.Mood.ENERGY,Recommendations.Mood.DISCOVERY)){if(other==mood)break;for(Track t:shelves.getOrDefault(other,List.of()))taken.add(t.id());}
+        return tracks.stream().filter(t->!taken.contains(t.id())&&!hidden.contains(t.id())).collect(java.util.stream.Collectors.toList());
+    }
+    private void drawDiscovery(){
+        if(discoveryContainer==null||!tab.equals("home"))return;discoveryContainer.removeAllViews();
+        LinearLayout top=row();top.addView(text("Picked for you",21,FG,true),new LinearLayout.LayoutParams(0,-2,1));Icons refresh=icon("repeat",MUTED,()->{refreshDiscovery(true);loadSuggestions(recommendationQuery());});refresh.setContentDescription("Refresh personalized recommendations");top.addView(refresh);discoveryContainer.addView(top);
+        var searches=app.library.searches();String reason=!searches.isEmpty()?"Because you searched “"+searches.get(0).query()+"”":app.library.recent().isEmpty()?"Search, like or play a few favorites to shape your mix.":"Inspired by your listening and liked songs";discoveryContainer.addView(text(reason,12,MUTED,false));space(discoveryContainer,14);
+        List<Track> picked=shelfSongs(Recommendations.Mood.FOR_YOU);if(shelfErrors.containsKey(Recommendations.Mood.FOR_YOU)){discoveryContainer.addView(text("Showing saved favorites · Connect to refresh new picks",12,MUTED,false));space(discoveryContainer,8);}if(!picked.isEmpty())songRail(discoveryContainer,picked);else discoveryContainer.addView(text(shelfLoading.contains(Recommendations.Mood.FOR_YOU)?"Finding music for your taste…":"No picks yet. Search for a favorite, then refresh.",13,MUTED,false));
+        space(discoveryContainer,22);discoveryContainer.addView(text("Made for your mood",21,FG,true));space(discoveryContainer,6);discoveryContainer.addView(text("Different sounds for different moments",12,MUTED,false));space(discoveryContainer,14);
+        List<Recommendations.Mood> moods=List.of(Recommendations.Mood.FOCUS,Recommendations.Mood.CHILL,Recommendations.Mood.ENERGY,Recommendations.Mood.DISCOVERY);
+        int columns=getResources().getConfiguration().screenWidthDp>=600?3:2;
+        for(int start=0;start<moods.size();start+=columns){LinearLayout group=row();for(int at=start;at<Math.min(start+columns,moods.size());at++){
+            Recommendations.Mood mood=moods.get(at);List<Track> songs=shelfSongs(mood);LinearLayout card=column();card.setBackground(bg(SURFACE,20));card.setClipToOutline(true);
+            FrameLayout picture=artwork(songs.isEmpty()?null:songs.get(0),150);picture.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{mood.color,ThemePalette.mix(mood.color,BG,.70f)}));card.addView(picture,new LinearLayout.LayoutParams(-1,dp(116)));
+            LinearLayout copy=column();copy.setPadding(dp(12),dp(10),dp(12),dp(12));copy.addView(label(mood.title,14,FG,true));space(copy,4);copy.addView(label(songs.isEmpty()?(shelfLoading.contains(mood)?"Finding your mix…":"Refresh for new songs"):songs.size()+" songs · Made for this mood",11,MUTED,false));card.addView(copy);card.setContentDescription("Open mood "+mood.title);card.setOnClickListener(v->openMix(mood));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);if(at>start)lp.setMarginStart(dp(10));group.addView(card,lp);
+        }if(group.getChildCount()<columns)group.addView(new View(this),new LinearLayout.LayoutParams(0,1,1));discoveryContainer.addView(group);space(discoveryContainer,12);}
+        List<Track> repeated=shelfSongs(Recommendations.Mood.REPEAT);if(!repeated.isEmpty()){space(discoveryContainer,12);LinearLayout heading=row();heading.addView(text("On repeat",21,FG,true),new LinearLayout.LayoutParams(0,-2,1));heading.addView(button("See all",false,()->openMix(Recommendations.Mood.REPEAT)));discoveryContainer.addView(heading);space(discoveryContainer,10);songRail(discoveryContainer,repeated);}
+    }
+    private void songRail(LinearLayout parent,List<Track> tracks){
+        HorizontalScrollView rail=new HorizontalScrollView(this);rail.setHorizontalScrollBarEnabled(false);LinearLayout cards=row();List<Track> queue=new ArrayList<>(tracks);
+        for(int index=0;index<Math.min(10,tracks.size());index++){Track track=tracks.get(index);final int position=index;LinearLayout card=column();card.setBackground(bg(SURFACE,18));inset(card,10);card.addView(artwork(track,128),new LinearLayout.LayoutParams(-1,dp(128)));space(card,10);card.addView(label(track.title(),14,FG,true));space(card,4);LinearLayout metadata=row();metadata.addView(label(track.artist(),11,MUTED,false),new LinearLayout.LayoutParams(0,-2,1));Icons more=icon("more",MUTED,()->songMenu(track,false));more.setContentDescription("Recommendation options for "+track.title());metadata.addView(more);card.addView(metadata);card.setContentDescription("Play recommendation "+track.title());card.setOnClickListener(v->play(queue,position,false));card.setOnLongClickListener(v->{songMenu(track,false);return true;});LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(154),-2);lp.setMarginEnd(dp(10));cards.addView(card,lp);}rail.addView(cards);parent.addView(rail);
+    }
+    private void openMix(Recommendations.Mood mood){openedMood=mood;tab="mix";playlistId=null;render();if(discoveryFingerprint.isEmpty())refreshDiscovery(false);}
+    private void mixScreen(){
+        LinearLayout header=row();header.addView(icon("back",FG,()->navigate("home")));header.addView(text("MADE FOR YOU",11,GREEN,true));add(body,header,48);List<Track> songs=shelfSongs(openedMood);add(body,text(openedMood.title,28,FG,true),-2);space(body,8);add(body,text(openedMood.description,13,MUTED,false),-2);space(body,18);
+        if(!songs.isEmpty()){List<Track> queue=new ArrayList<>(songs);LinearLayout controls=row();controls.addView(button("▶  Play",true,()->play(queue,0,false)),new LinearLayout.LayoutParams(0,dp(48),1));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1);lp.setMarginStart(dp(10));controls.addView(button("Shuffle",false,()->play(queue,0,true)),lp);add(body,controls,-2);space(body,10);add(body,button("Save mix to Library",false,()->nameDialog("Save mix",openedMood.title,name->{String id=app.library.importPlaylist(name,queue);openOwnPlaylist(id);})),48);space(body,14);for(Track track:queue)trackRow(body,track,queue,false);}
+        if(shelfLoading.contains(openedMood))add(body,text("Refreshing this mood…",13,MUTED,false),-2);else if(songs.isEmpty())add(body,text(shelfErrors.getOrDefault(openedMood,"No different songs are available for this mood yet. Refresh to try another selection."),13,MUTED,false),-2);
+        space(body,14);add(body,button("Refresh this mix",false,()->{refreshDiscovery(true);loadSuggestions(recommendationQuery());render();}),48);
     }
     private String recommendationQuery(){
         List<Track> recent=app.library.recent();
@@ -180,9 +229,9 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private void drawSuggestions(){
         if(suggestionsContainer==null||!tab.equals("home"))return;
         suggestionsContainer.removeAllViews();
-        LinearLayout title=row();title.addView(text("YouTube Music playlists",21,FG,true),new LinearLayout.LayoutParams(0,-2,1));
-        Icons refresh=icon("repeat",GREEN,()->loadSuggestions(suggestionsQuery.isBlank()?recommendationQuery():suggestionsQuery));refresh.setContentDescription("Refresh YouTube playlists");title.addView(refresh);suggestionsContainer.addView(title);
-        suggestionsContainer.addView(text(suggestionFilter.equals("For you")&&!app.library.recent().isEmpty()?"Inspired by your recent listening.":"Public playlists for your next listening session.",13,MUTED,false));space(suggestionsContainer,12);
+        LinearLayout title=row();title.addView(text("Mixes for your taste",21,FG,true),new LinearLayout.LayoutParams(0,-2,1));
+        Icons refresh=icon("repeat",GREEN,()->{refreshDiscovery(true);loadSuggestions(suggestionsQuery.isBlank()?recommendationQuery():suggestionsQuery);});refresh.setContentDescription("Refresh YouTube playlists");title.addView(refresh);suggestionsContainer.addView(title);
+        suggestionsContainer.addView(text(suggestionFilter.equals("For you")&&!app.library.recent().isEmpty()?"From your listening, searches and likes.":"Public playlists for your next listening session.",13,MUTED,false));space(suggestionsContainer,12);
         HorizontalScrollView filters=new HorizontalScrollView(this);filters.setHorizontalScrollBarEnabled(false);LinearLayout chips=row();
         for(String name:List.of("For you","Fresh","Chill","Workout")){
             TextView chip=button(name,name.equals(suggestionFilter),()->{suggestionFilter=name;loadSuggestions(switch(name){case "Fresh"->"new music playlists";case "Chill"->"chill lofi music playlists";case "Workout"->"workout music playlists";default->recommendationQuery();});});
@@ -197,7 +246,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         HorizontalScrollView rail=new HorizontalScrollView(this);rail.setHorizontalScrollBarEnabled(false);LinearLayout cards=row();
         for(PlaylistSource.Suggestion playlist:suggestions){
             LinearLayout card=column();card.setBackground(bg(SURFACE,18));inset(card,12);
-            Track cover=new Track("artwork0001",playlist.title(),playlist.author(),playlist.artwork(),0);
+            Track cover=new Track("",playlist.title(),playlist.author(),playlist.artwork(),0);
             card.addView(artwork(cover,142),new LinearLayout.LayoutParams(-1,dp(116)));space(card,12);
             TextView name=text(playlist.title(),15,FG,true);name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);card.addView(name,new LinearLayout.LayoutParams(-1,dp(44)));
             card.addView(label(playlist.author(),11,MUTED,false));space(card,5);card.addView(label(playlist.count()>0?playlist.count()+" tracks · YouTube":"Playlist · YouTube",11,GREEN,false));
@@ -209,12 +258,12 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private void loadSuggestions(String query){
         if(closing||isDestroyed())return;
         String q=query.isBlank()?recommendationQuery():query;
-        if(suggestionsLoading&&q.equals(suggestionsQuery))return;
+        Recommendations.Profile profile=tasteProfile();String fingerprint=profile.fingerprint()+suggestionFilter;if(q.equals(suggestionsQuery)&&fingerprint.equals(suggestionsFingerprint)&&(suggestionsLoading||!suggestions.isEmpty()))return;suggestionsFingerprint=fingerprint;
         suggestionsQuery=q;suggestionsLoading=true;suggestionsError="";suggestions.clear();int version=++suggestionsVersion;
         if(suggestionsJob!=null)suggestionsJob.cancel(false);drawSuggestions();
-        MusicLanguage language=MusicLanguage.selected(this);suggestionsJob=network.submit(()->{
+        MusicLanguage language=MusicLanguage.selected(this);suggestionsJob=discovery.submit(()->{
             try{
-                List<PlaylistSource.Suggestion> found=app.playlists.suggest(language.query(q));
+                List<PlaylistSource.Suggestion> found=suggestionFilter.equals("For you")?Recommendations.playlists(profile,app.playlists):app.playlists.suggest(language.query(q));
                 runOnUiThread(()->{if(closing||isDestroyed()||version!=suggestionsVersion)return;suggestionsLoading=false;suggestions.addAll(found);if(found.isEmpty())suggestionsError="No public playlists found. Try another mood.";drawSuggestions();});
             }catch(Exception e){runOnUiThread(()->{if(closing||isDestroyed()||version!=suggestionsVersion)return;suggestionsLoading=false;suggestionsError="Couldn't load YouTube playlists. Check your connection and retry.";drawSuggestions();});}
         });
@@ -264,6 +313,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
             }).setNegativeButton("Cancel",null).show();
     }
     private void searchScreen(){
+        if(addTargetPlaylistId!=null){LinearLayout adding=row();adding.addView(text("Choose songs to add to your playlist",12,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));adding.addView(button("Done",false,()->{String id=addTargetPlaylistId;addTargetPlaylistId=null;openOwnPlaylist(id);}));add(body,adding,48);space(body,10);}
         add(body,text("Find your next listen.",28,FG,true),-2);space(body,8);add(body,text("Search YouTube Music songs and albums, or paste a link.",14,MUTED,false),-2);space(body,20);
         addLanguageChip();space(body,14);
         LinearLayout bar=row();bar.setBackground(border(SURFACE,16));bar.addView(icon("search",MUTED,null));EditText input=new EditText(this);input.setSingleLine(true);input.setTextColor(FG);input.setHintTextColor(MUTED);input.setTextSize(15);input.setHint("Songs, artists, or a YouTube link");input.setText(query);input.setBackgroundColor(android.graphics.Color.TRANSPARENT);input.setPadding(0,dp(12),0,dp(12));input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);bar.addView(input,new LinearLayout.LayoutParams(0,dp(56),1));Icons go=icon("next",GREEN,()->startSearch(input.getText().toString(),false));go.setContentDescription("Search YouTube");bar.addView(go);add(body,bar,-2);
@@ -297,7 +347,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         String playlistLink=PlaylistLinks.canonical(q);
         if(!more&&playlistLink!=null&&VideoIds.parse(q)==null){openRemotePlaylist(new PlaylistSource.Suggestion(playlistLink,"YouTube playlist","YouTube","",-1));return;}
         if(searching && more)return;
-        tab="search";playlistId=null;query=q;hideKeyboard();int version=++searchVersion;
+        tab="search";playlistId=null;query=q;if(!more)app.library.recordSearch(q);hideKeyboard();int version=++searchVersion;
         org.schabi.newpipe.extractor.Page page=more?nextPage:null;
         MusicCatalog.Mode mode=searchMode;MusicLanguage language=MusicLanguage.selected(this);if(!more){results.clear();albumResults.clear();nextPage=null;}searching=true;searchError="";render();
         network.execute(()->{
@@ -315,19 +365,21 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         add(body,button("+  Create playlist",true,()->editPlaylist(null,"")),50);space(body,10);TextView history=text("Import YouTube history",12,MUTED,false);history.setGravity(Gravity.CENTER);history.setMinHeight(dp(48));history.setOnClickListener(v->navigate("account"));add(body,history,48);space(body,18);
         for(Library.Playlist p:app.library.playlists()){
             LinearLayout card=row();card.setBackground(bg(SURFACE,18));card.setPadding(dp(12),dp(12),dp(8),dp(12));
-            FrameLayout cover=new FrameLayout(this);cover.setBackground(bg(p.id().equals("liked")?palette.selected():RAISED,14));Icons i=icon(p.id().equals("liked")?"liked":"music",GREEN,null);cover.addView(i,new FrameLayout.LayoutParams(-1,-1));card.addView(cover,new LinearLayout.LayoutParams(dp(52),dp(52)));
-            LinearLayout copy=column();copy.setPadding(dp(16),0,0,0);copy.addView(label(p.name(),15,FG,true));space(copy,5);copy.addView(text(p.count()+" songs · On this device",12,MUTED,false));card.addView(copy,new LinearLayout.LayoutParams(0,-2,1));card.addView(icon("chevron",MUTED,null));card.setOnClickListener(v->{playlistId=p.id();playlistName=p.name();render();});card.setMinimumHeight(dp(80));add(body,card,-2);space(body,10);
+            card.addView(playlistArtwork(p.id(),52),new LinearLayout.LayoutParams(dp(52),dp(52)));
+            LinearLayout copy=column();copy.setPadding(dp(16),0,0,0);copy.addView(label(p.name(),15,FG,true));space(copy,5);copy.addView(text((p.pinned()?"Pinned · ":"")+p.count()+" songs · On this device",12,MUTED,false));card.addView(copy,new LinearLayout.LayoutParams(0,-2,1));card.addView(icon("chevron",MUTED,null));card.setOnClickListener(v->{playlistId=p.id();playlistName=p.name();render();});card.setMinimumHeight(dp(80));add(body,card,-2);space(body,10);
         }
         space(body,12);add(body,text("Playlists are saved locally and work without an account. Download tracks to listen without a connection.",12,MUTED,false),-2);
     }
     private void playlistScreen(){
-        LinearLayout tools=row();tools.addView(icon("back",FG,()->{playlistId=null;render();}));tools.addView(text("YOUR COLLECTION",11,MUTED,true),new LinearLayout.LayoutParams(0,-2,1));if(!playlistId.equals("liked"))tools.addView(icon("more",FG,this::playlistOptions));add(body,tools,48);
+        LinearLayout tools=row();tools.addView(icon("back",FG,()->{playlistId=null;render();}));tools.addView(text("YOUR COLLECTION",11,MUTED,true),new LinearLayout.LayoutParams(0,-2,1));if(!playlistId.equals("liked")){Icons options=icon("more",FG,this::playlistOptions);options.setContentDescription("Playlist options");tools.addView(options);}add(body,tools,48);
         space(body,18);Icons art=icon(playlistId.equals("liked")?"liked":"music",GREEN,null);art.setBackground(bg(palette.selected(),24));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(104),dp(104));ap.gravity=Gravity.CENTER_HORIZONTAL;body.addView(art,ap);space(body,22);
-        add(body,text(playlistName,26,FG,true),-2);List<Track> songs=app.library.playlistTracks(playlistId);space(body,6);add(body,text(songs.size()+" songs · Made by you",13,MUTED,false),-2);space(body,20);
+        add(body,text(playlistName,26,FG,true),-2);List<Track> songs=app.library.playlistTracks(playlistId);space(body,6);add(body,text(songs.size()+" songs · Made by you",13,MUTED,false),-2);if(!currentPlaylist().description().isBlank()){space(body,8);add(body,text(currentPlaylist().description(),13,MUTED,false),-2);}space(body,20);
+        add(body,button("Add songs",false,()->{addTargetPlaylistId=playlistId;tab="search";query="";results.clear();albumResults.clear();render();}),48);space(body,10);
         if(!downloadedTracks().isEmpty()){add(body,button("Add downloaded songs",false,()->selectDownloadedSongs(playlistId,null)),48);space(body,12);}
         if(!songs.isEmpty()){
             LinearLayout controls=row();controls.addView(button("▶  Play",true,()->play(songs,0,false)),new LinearLayout.LayoutParams(0,dp(50),1));TextView shuffle=button("Shuffle",false,()->play(songs,0,true));LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(0,dp(50),1);bp.leftMargin=dp(10);controls.addView(shuffle,bp);add(body,controls,-2);space(body,18);for(Track t:songs)trackRow(body,t,songs,true);
-        }else empty("Make room for your favorites","Find a song, tap the three dots, then choose Add to playlist.","music","Find songs",()->navigate("search"));
+        }else empty("Make room for your favorites","Add songs from Search or your downloads.","music","Find songs",()->navigate("search"));
+        drawPlaylistAdditions();handler.post(()->{if(!closing&&tab.equals("library")&&playlistId!=null)loadPlaylistAdditions(false);});
     }
     private void offlineScreen(){
         add(body,text("Your offline music",28,FG,true),-2);space(body,8);add(body,text("Saved on your phone. Ready for airplane mode.",14,MUTED,false),-2);space(body,20);
@@ -354,23 +406,23 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         LinearLayout r=row();r.setPadding(0,dp(7),0,dp(7));
         FrameLayout art=artwork(t,54);r.addView(art,new LinearLayout.LayoutParams(dp(54),dp(54)));
         LinearLayout copy=column();copy.setPadding(dp(13),0,dp(3),0);copy.addView(label(t.title(),inPlaylist?14:15,FG,true));space(copy,5);copy.addView(label((app.library.offline(t.id())!=null?"↓  ":"")+t.artist()+ (t.duration()>0?" · "+time(t.duration()*1000):""),12,MUTED,false));r.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
-        Icons add=icon("add",GREEN,()->choosePlaylist(t));add.setContentDescription("Add "+t.title()+" to playlist");r.addView(add);Icons more=icon("more",MUTED,()->songMenu(t,inPlaylist));more.setContentDescription("Options for "+t.title());r.addView(more);r.setOnClickListener(v->{int index=0;for(int i=0;i<queue.size();i++)if(queue.get(i).id().equals(t.id())){index=i;break;}play(queue,index,false);});r.setContentDescription("Play "+t.title()+" by "+t.artist());parent.addView(r,new LinearLayout.LayoutParams(-1,dp(76)));
+        Icons add=icon("add",GREEN,()->{if(addTargetPlaylistId!=null){app.library.add(addTargetPlaylistId,t);toast("Added to playlist");}else choosePlaylist(t);});add.setContentDescription("Add "+t.title()+" to playlist");r.addView(add);Icons more=icon("more",MUTED,()->songMenu(t,inPlaylist));more.setContentDescription("Options for "+t.title());r.addView(more);r.setOnClickListener(v->{int index=0;for(int i=0;i<queue.size();i++)if(queue.get(i).id().equals(t.id())){index=i;break;}play(queue,index,false);});r.setContentDescription("Play "+t.title()+" by "+t.artist());parent.addView(r,new LinearLayout.LayoutParams(-1,dp(76)));
     }
     private void empty(String title,String subtitle,String symbol,String action,Runnable click){
         LinearLayout box=column();inset(box,22);box.setBackground(bg(SURFACE,20));Icons i=icon(symbol,GREEN,null);box.addView(i);space(box,12);box.addView(text(title,20,FG,true));space(box,8);TextView copy=text(subtitle,13,MUTED,false);copy.setLineSpacing(dp(3),1);box.addView(copy);if(action!=null){space(box,18);box.addView(button(action,true,click),new LinearLayout.LayoutParams(-2,dp(48)));}add(body,box,-2);
     }
     private FrameLayout artwork(Track t,int size){
         FrameLayout f=new FrameLayout(this);f.setBackground(bg(RAISED,12));f.setClipToOutline(true);f.addView(new RecordArt(this),new FrameLayout.LayoutParams(-1,-1));
-        if(t!=null&&!t.artwork().isEmpty()){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);image.setContentDescription("Artwork for "+t.title());f.addView(image,new FrameLayout.LayoutParams(-1,-1));loadImage(image,t.artwork());}return f;
+        if(t!=null&&!t.artworkUrl().isEmpty()){ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);image.setContentDescription("Artwork for "+t.title());f.addView(image,new FrameLayout.LayoutParams(-1,-1));loadImage(image,t.artworkUrl());}return f;
     }
     private void loadImage(ImageView image,String url){
         if(closing||images.isShutdown())return;
-        image.setTag(url);Bitmap cached=imageCache.get(url);if(cached!=null){image.setImageBitmap(cached);return;}
-        if(!url.startsWith("https://"))return;
-        images.execute(()->{try(okhttp3.Response r=app.youtube.client.newCall(new okhttp3.Request.Builder().url(url).build()).execute()){
-            if(!r.isSuccessful()||r.body()==null)return;java.io.InputStream in=r.body().byteStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] chunk=new byte[8192];int n,count=0;while((n=in.read(chunk))!=-1){count+=n;if(count>3*1024*1024)return;out.write(chunk,0,n);}
-            byte[] data=out.toByteArray();BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,opts);if(opts.outWidth<1||opts.outHeight<1)return;opts.inSampleSize=Math.max(1,Math.max(opts.outWidth,opts.outHeight)/720);opts.inJustDecodeBounds=false;Bitmap bitmap=BitmapFactory.decodeByteArray(data,0,data.length,opts);if(bitmap==null)return;imageCache.put(url,bitmap);runOnUiThread(()->{if(!closing&&!isDestroyed()&&url.equals(image.getTag()))image.setImageBitmap(bitmap);});
-        }catch(Exception ignored){/* Keep generated artwork if a thumbnail is unavailable. */}});
+        image.setTag(url);Bitmap cached=app.artworkCache.get(url);if(cached!=null){image.setImageBitmap(cached);return;}
+        if(!url.startsWith("https://")||System.currentTimeMillis()-artworkFailures.getOrDefault(url,0L)<30000)return;
+        images.execute(()->{try(okhttp3.Response r=app.artworkClient.newCall(new okhttp3.Request.Builder().url(url).build()).execute()){
+            if(!r.isSuccessful()||r.body()==null){artworkFailures.put(url,System.currentTimeMillis());return;}java.io.InputStream in=r.body().byteStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] chunk=new byte[8192];int n,count=0;while((n=in.read(chunk))!=-1){count+=n;if(count>3*1024*1024)return;out.write(chunk,0,n);}
+            byte[] data=out.toByteArray();BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,opts);if(opts.outWidth<1||opts.outHeight<1)return;opts.inSampleSize=Math.max(1,Math.max(opts.outWidth,opts.outHeight)/720);opts.inJustDecodeBounds=false;Bitmap bitmap=BitmapFactory.decodeByteArray(data,0,data.length,opts);if(bitmap==null)return;app.artworkCache.put(url,bitmap);runOnUiThread(()->{if(!closing&&!isDestroyed()&&url.equals(image.getTag()))image.setImageBitmap(bitmap);});
+        }catch(Exception ignored){if(artworkFailures.size()>200)artworkFailures.clear();artworkFailures.put(url,System.currentTimeMillis());}});
     }
     private void play(List<Track> tracks,int index,boolean shuffle){
         if(player==null){toast("Audio player is connecting. Please try again.");return;}if(tracks.isEmpty())return;
@@ -389,7 +441,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         ScrollView container=new ScrollView(this);container.setFillViewport(true);container.addView(page);nowDialog.setContentView(container);nowDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);WindowCompat.setDecorFitsSystemWindows(nowDialog.getWindow(),false);nowDialog.getWindow().setLayout(-1,-1);ViewCompat.setOnApplyWindowInsetsListener(container,(v,i)->{androidx.core.graphics.Insets s=i.getInsets(WindowInsetsCompat.Type.systemBars());v.setPadding(0,s.top,0,s.bottom);return i;});
         LinearLayout top=row();top.addView(icon("down",FG,()->nowDialog.dismiss()));TextView title=label("IN YOUR FREQUENCY",11,FG,true);title.setGravity(Gravity.CENTER);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));top.addView(icon("queue",FG,this::showQueue));page.addView(top);space(page,28);
         int artSize=Math.min(360,(int)(getResources().getDisplayMetrics().widthPixels/getResources().getDisplayMetrics().density)-64);nowArtFrame=new FrameLayout(this);nowArtFrame.setBackground(bg(RAISED,24));nowArtFrame.setClipToOutline(true);nowArtFrame.addView(new RecordArt(this),new FrameLayout.LayoutParams(-1,-1));nowArt=new ImageView(this);nowArt.setScaleType(ImageView.ScaleType.CENTER_CROP);nowArtFrame.addView(nowArt,new FrameLayout.LayoutParams(-1,-1));LinearLayout.LayoutParams artParams=new LinearLayout.LayoutParams(dp(artSize),dp(artSize));artParams.gravity=Gravity.CENTER_HORIZONTAL;page.addView(nowArtFrame,artParams);space(page,30);
-        LinearLayout name=row();LinearLayout names=column();nowTitle=label("",25,FG,true);nowArtist=label("",15,MUTED,false);names.addView(nowTitle);space(names,6);names.addView(nowArtist);name.addView(names,new LinearLayout.LayoutParams(0,-2,1));likeIcon=icon("heart",GREEN,()->{Track t=Track.from(player.getCurrentMediaItem());boolean liked=app.library.contains("liked",t.id());if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);updateNow();});likeIcon.setContentDescription("Toggle liked song");name.addView(likeIcon);page.addView(name);space(page,18);
+        LinearLayout name=row();LinearLayout names=column();nowTitle=label("",25,FG,true);nowArtist=label("",15,MUTED,false);names.addView(nowTitle);space(names,6);names.addView(nowArtist);name.addView(names,new LinearLayout.LayoutParams(0,-2,1));likeIcon=icon("heart",GREEN,()->{Track t=Track.from(player.getCurrentMediaItem());boolean liked=app.library.contains("liked",t.id());if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);updateNow();refreshDiscovery(false);loadSuggestions(recommendationQuery());});likeIcon.setContentDescription("Toggle liked song");name.addView(likeIcon);page.addView(name);space(page,18);
         seek=new SeekBar(this);seek.setMax(1000);seek.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(GREEN));seek.setContentDescription("Playback position");page.addView(seek,new LinearLayout.LayoutParams(-1,dp(44)));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int v,boolean user){if(user&&player.getDuration()>0)elapsed.setText(time(player.getDuration()*v/1000));}public void onStartTrackingTouch(SeekBar s){dragging=true;}public void onStopTrackingTouch(SeekBar s){if(player.getDuration()>0)player.seekTo(player.getDuration()*s.getProgress()/1000);dragging=false;}});
         LinearLayout times=row();elapsed=text("0:00",12,MUTED,false);total=text("0:00",12,MUTED,false);times.addView(elapsed,new LinearLayout.LayoutParams(0,-2,1));times.addView(total);page.addView(times);space(page,16);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);shuffleIcon=icon("shuffle",MUTED,()->player.setShuffleModeEnabled(!player.getShuffleModeEnabled()));controls.addView(shuffleIcon,new LinearLayout.LayoutParams(0,dp(56),1));Icons prev=icon("previous",FG,()->{if(player.getCurrentPosition()>3000)player.seekTo(0);else if(player.hasPreviousMediaItem())player.seekToPreviousMediaItem();else player.seekTo(0);});controls.addView(prev,new LinearLayout.LayoutParams(0,dp(60),1));playIcon=icon("play",INK,this::togglePlay);playIcon.setBackground(bg(GREEN,50));controls.addView(playIcon,new LinearLayout.LayoutParams(dp(76),dp(76)));Icons next=icon("next",FG,()->{if(player.hasNextMediaItem())player.seekToNextMediaItem();else toast("You're at the end of the queue.");});controls.addView(next,new LinearLayout.LayoutParams(0,dp(60),1));repeatIcon=icon("repeat",MUTED,()->player.setRepeatMode((player.getRepeatMode()+1)%3));repeatIcon.setContentDescription("Change repeat mode");controls.addView(repeatIcon,new LinearLayout.LayoutParams(0,dp(56),1));page.addView(controls);space(page,18);
@@ -417,13 +469,14 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         ArrayList<String> options=new ArrayList<>(List.of(liked?"Remove from liked songs":"Like song","Add to playlist",offline?"Remove offline copy":"Save offline","Add to queue","Open on YouTube"));
         if(inPlaylist){options.add("Remove from this playlist");options.add("Move earlier");options.add("Move later");}
         if(offline){options.add("Export offline audio");if(!app.library.offline(t.id()).endsWith(".mp3"))options.add("Convert offline copy to MP3");}
-        options.add("Equalizer");
+        options.add("Equalizer");if(!inPlaylist)options.add("Hide from suggestions");
         new AlertDialog.Builder(this).setTitle(t.title()).setItems(options.toArray(new String[0]),(d,action)->{
+            if(options.get(action).equals("Hide from suggestions")){app.library.hideSuggestion(t.id());refreshDiscovery(true);toast("Hidden from recommendations");return;}
             if(options.get(action).equals("Equalizer")){showEqualizer();return;}
             if(options.get(action).equals("Export offline audio")){exportAudio(t);return;}
             if(options.get(action).equals("Convert offline copy to MP3")){startDownload(t,true);return;}
             switch(action){
-                case 0->{if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);toast(liked?"Removed from liked songs":"Added to liked songs");updateNow();if(tab.equals("library"))render();}
+                case 0->{if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);toast(liked?"Removed from liked songs":"Added to liked songs");updateNow();if(tab.equals("library"))render();if(tab.equals("home")){refreshDiscovery(false);loadSuggestions(recommendationQuery());}}
                 case 1->choosePlaylist(t);
                 case 2->{if(offline)new AlertDialog.Builder(this).setTitle("Remove offline copy?").setMessage("This frees device storage. The song stays in your playlists.").setPositiveButton("Remove",(dd,w)->{if(app.library.removeDownload(t.id())){toast("Offline copy removed");render();}else toast("Could not remove the file. Please try again.");}).setNegativeButton("Keep",null).show();else download(t);}
                 case 3->{if(player!=null){app.library.remember(t);player.addMediaItem(t.mediaItem(app.library.offline(t.id())));toast("Added to queue");}}
@@ -489,7 +542,49 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
             catch(android.database.SQLException error){toast("Couldn't save these songs. Your downloads are kept.");}
         });
     }
-    private void playlistOptions(){new AlertDialog.Builder(this).setTitle(playlistName).setItems(new String[]{"Rename playlist","Delete playlist"},(d,index)->{if(index==0)editPlaylist(playlistId,playlistName);else new AlertDialog.Builder(this).setTitle("Delete this playlist?").setMessage("Downloaded audio will stay in your offline library.").setPositiveButton("Delete",(dd,w)->{app.library.deletePlaylist(playlistId);playlistId=null;render();}).setNegativeButton("Keep",null).show();}).show();}
+    private Library.Playlist currentPlaylist(){return app.library.playlists().stream().filter(p->p.id().equals(playlistId)).findFirst().orElseThrow();}
+    private void playlistOptions(){
+        Library.Playlist item=currentPlaylist();String[] options={"Edit details","Add songs from search","Add downloaded songs","Refresh suggestions","Sort songs","Select songs","Duplicate playlist","Merge into another playlist",item.pinned()?"Unpin playlist":"Pin playlist","Delete playlist"};
+        new AlertDialog.Builder(this).setTitle(playlistName).setItems(options,(dialog,index)->{switch(index){
+            case 0->editPlaylistDetails(item);
+            case 1->{addTargetPlaylistId=item.id();tab="search";query="";results.clear();albumResults.clear();nextPage=null;render();}
+            case 2->selectDownloadedSongs(item.id(),null);
+            case 3->loadPlaylistAdditions(true);
+            case 4->new AlertDialog.Builder(this).setTitle("Sort playlist").setItems(new String[]{"Song title","Artist","Reverse current order"},(d,at)->{app.library.sortPlaylist(item.id(),new String[]{"title","artist","reverse"}[at]);render();}).show();
+            case 5->selectPlaylistSongs(item.id());
+            case 6->nameDialog("Duplicate playlist",(item.name()+" copy").substring(0,Math.min(80,item.name().length()+5)),name->{openOwnPlaylist(app.library.duplicate(item.id(),name));toast("Playlist duplicated");});
+            case 7->mergePlaylist(item.id());
+            case 8->{app.library.pin(item.id(),!item.pinned());render();toast(item.pinned()?"Playlist unpinned":"Playlist pinned");}
+            case 9->new AlertDialog.Builder(this).setTitle("Delete this playlist?").setMessage("Downloaded audio stays in your offline library.").setPositiveButton("Delete",(d,w)->{app.library.deletePlaylist(item.id());playlistId=null;render();}).setNegativeButton("Keep",null).show();
+        }}).setNegativeButton("Close",null).show();
+    }
+    private void editPlaylistDetails(Library.Playlist item){
+        LinearLayout form=column();inset(form,20);EditText name=new EditText(this);name.setText(item.name());name.setHint("Playlist name");name.setTextColor(FG);name.setHintTextColor(MUTED);name.setSingleLine();name.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});form.addView(name);
+        EditText description=new EditText(this);description.setText(item.description());description.setHint("Description · optional");description.setTextColor(FG);description.setHintTextColor(MUTED);description.setMinLines(2);description.setMaxLines(5);description.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(280)});form.addView(description);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Edit playlist").setView(form).setPositiveButton("Save",null).setNegativeButton("Cancel",null).create();dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(name.getText().toString().trim().isEmpty()){name.setError("Name your playlist");return;}app.library.details(item.id(),name.getText().toString(),description.getText().toString());playlistName=name.getText().toString().trim();dialog.dismiss();render();});
+    }
+    private void mergePlaylist(String source){
+        List<Library.Playlist> targets=app.library.playlists().stream().filter(p->!p.id().equals(source)).collect(java.util.stream.Collectors.toList());if(targets.isEmpty()){toast("Create another playlist first");return;}
+        String[] names=targets.stream().map(Library.Playlist::name).toArray(String[]::new);new AlertDialog.Builder(this).setTitle("Add these songs to…").setItems(names,(d,index)->{app.library.addAll(targets.get(index).id(),app.library.playlistTracks(source));toast("Songs merged · Existing songs kept once");}).setNegativeButton("Cancel",null).show();
+    }
+    private void selectPlaylistSongs(String id){
+        List<Track> songs=app.library.playlistTracks(id);if(songs.isEmpty()){toast("This playlist is empty");return;}boolean[] chosen=new boolean[songs.size()];String[] titles=songs.stream().map(t->t.title()+" · "+t.artist()).toArray(String[]::new);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Select songs to remove").setMultiChoiceItems(titles,chosen,(d,index,checked)->chosen[index]=checked).setNeutralButton("Select all",null).setPositiveButton("Remove",null).setNegativeButton("Cancel",null).create();dialog.show();dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{boolean all=true;for(boolean checked:chosen)all&=checked;for(int i=0;i<chosen.length;i++){chosen[i]=!all;dialog.getListView().setItemChecked(i,!all);}});dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{List<String> ids=new ArrayList<>();for(int i=0;i<chosen.length;i++)if(chosen[i])ids.add(songs.get(i).id());if(ids.isEmpty()){toast("Choose a song first");return;}app.library.removeAll(id,ids);dialog.dismiss();render();toast("Removed from playlist · Offline files kept");});
+    }
+    private void loadPlaylistAdditions(boolean force){
+        if(playlistId==null||closing)return;String id=playlistId;if(!force&&id.equals(playlistRecId))return;playlistRecId=id;playlistAdditions.clear();playlistRecLoading=true;int version=++playlistRecVersion;List<Track> existing=app.library.playlistTracks(id);Recommendations.Profile base=tasteProfile();List<Library.Taste> taste=existing.isEmpty()?base.taste():existing.stream().limit(12).map(t->new Library.Taste(t,1,0,false)).collect(java.util.stream.Collectors.toList());Set<String> hidden=new HashSet<>(base.hidden());for(Track song:existing)hidden.add(song.id());Recommendations.Profile profile=new Recommendations.Profile(taste,existing.isEmpty()?base.searches():List.of(),hidden,base.language(),base.rotation()+(force?++playlistRecRefresh:0));
+        discovery.submit(()->{try{List<Track> found=Recommendations.load(profile,Recommendations.Mood.FOR_YOU,q->app.catalog.search(q,null,MusicCatalog.Mode.SONGS).tracks());runOnUiThread(()->{if(closing||version!=playlistRecVersion||!id.equals(playlistId))return;playlistAdditions.addAll(found);playlistRecLoading=false;render();});}catch(Exception error){runOnUiThread(()->{if(closing||version!=playlistRecVersion||!id.equals(playlistId))return;playlistRecLoading=false;render();});}});if(tab.equals("library"))render();
+    }
+    private void drawPlaylistAdditions(){
+        space(body,18);LinearLayout top=row();top.addView(text("Suggested additions",19,FG,true),new LinearLayout.LayoutParams(0,-2,1));Icons refresh=icon("repeat",MUTED,()->loadPlaylistAdditions(true));refresh.setContentDescription("Refresh playlist suggestions");top.addView(refresh);add(body,top,48);
+        Set<String> hiddenSongs=app.library.hidden();List<Track> available=playlistAdditions.stream().filter(t->!hiddenSongs.contains(t.id())&&!app.library.contains(playlistId,t.id())).collect(java.util.stream.Collectors.toList());
+        if(available.isEmpty())add(body,text(playlistRecLoading?"Finding songs that fit this playlist…":"Add a few favorites or refresh to find related songs.",12,MUTED,false),-2);
+        else{add(body,text("Chosen around this playlist's artists. Tap + to update it.",12,MUTED,false),-2);for(Track song:available){LinearLayout row=row();row.addView(artwork(song,44),new LinearLayout.LayoutParams(dp(44),dp(44)));LinearLayout copy=column();copy.setPadding(dp(10),0,0,0);copy.addView(label(song.title(),14,FG,true));copy.addView(label(song.artist(),11,MUTED,false));row.addView(copy,new LinearLayout.LayoutParams(0,-2,1));Icons add=icon("add",GREEN,()->{app.library.add(playlistId,song);playlistAdditions.remove(song);render();toast("Added to playlist");});add.setContentDescription("Add suggested "+song.title());row.addView(add);add(body,row,66);}
+            space(body,8);add(body,button("Add all suggestions",false,()->{app.library.addAll(playlistId,available);playlistAdditions.clear();render();toast("Suggested songs added");}),48);}
+    }
+    private FrameLayout playlistArtwork(String id,int size){
+        List<Track> songs=app.library.playlistTracks(id);if(songs.isEmpty())return artwork(null,size);if(songs.size()<4)return artwork(songs.get(0),size);FrameLayout cover=new FrameLayout(this);cover.setBackground(bg(RAISED,14));cover.setClipToOutline(true);LinearLayout mosaic=column();for(int r=0;r<2;r++){LinearLayout row=row();for(int c=0;c<2;c++)row.addView(artwork(songs.get(r*2+c),size/2),new LinearLayout.LayoutParams(0,0+dp(size/2),1));mosaic.addView(row);}cover.addView(mosaic,new FrameLayout.LayoutParams(-1,-1));return cover;
+    }
     private void download(Track track){
         if(app.library.offline(track.id())!=null){toast("Already available offline. Use its menu to export or convert to MP3.");return;}
         for(var d:app.library.downloads())if(d.track().id().equals(track.id())&&List.of("queued","downloading","converting").contains(d.status())){toast("This song is already being saved");return;}
@@ -561,7 +656,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         });dialog.show();
     }
     private void showAbout(){
-        new AlertDialog.Builder(this).setTitle("MuseDock · "+getString(R.string.app_version)).setMessage(getString(R.string.developed_by)+"\n\nYour music, in your frequency.\n\nAndroid 10+ · No account required\n\nSearch and stream YouTube audio and discover public playlists with the open-source NewPipe Extractor. For you suggestions use the most recently played artist when available; other filters use the selected mood. Optional Google sign-in saves only your name and email locally; it does not grant YouTube history access. Takeout exports are processed locally. Offline audio and optional MP3 conversion stay on this device. There are no in-app ads. YouTube availability and extraction can change; some videos may not play.\n\nPlaylists and downloads stay on this device. Uninstalling clears them. Audio files are kept in app-private storage. Songs and Albums search YouTube Music through NewPipe; playback uses YouTube media streams. Equalizer effects depend on device audio support. Search requests and playback connect directly to YouTube/Google; thumbnail requests connect to their image servers. No analytics or developer server.\n\nOnly download content you have permission to save. This app is not affiliated with YouTube or Spotify.\n\nOpen-source: GPL-3.0-or-later. NewPipe Extractor and nanojson: GPL-3.0-or-later and Apache-2.0 respectively; AndroidX Media3: Apache-2.0; OkHttp: Apache-2.0. Full notices are included with the source.").setNeutralButton("Account & history",(d,w)->navigate("account")).setPositiveButton("Got it",null).show();
+        new AlertDialog.Builder(this).setTitle("MuseDock · "+getString(R.string.app_version)).setMessage(getString(R.string.developed_by)+"\n\nYour music, in your frequency.\n\nAndroid 10+ · No account required\n\nSearch and stream YouTube audio and discover public playlists with the open-source NewPipe Extractor. For you suggestions use the most recently played artist when available; other filters use the selected mood. Optional Google sign-in saves only your name and email locally; it does not grant YouTube history access. Takeout exports are processed locally. Offline audio and optional MP3 conversion stay on this device. Recommendations use local searches, play counts and likes; derived song/artist searches go to YouTube Music to fetch suggestions. You can hide songs from suggestions through their menu. There are no in-app ads. YouTube availability and extraction can change; some videos may not play.\n\nPlaylists and downloads stay on this device. Uninstalling clears them. Audio files are kept in app-private storage. Songs and Albums search YouTube Music through NewPipe; playback uses YouTube media streams. Equalizer effects depend on device audio support. Search requests and playback connect directly to YouTube/Google; thumbnail requests connect to their image servers. No analytics or developer server.\n\nOnly download content you have permission to save. This app is not affiliated with YouTube or Spotify.\n\nOpen-source: GPL-3.0-or-later. NewPipe Extractor and nanojson: GPL-3.0-or-later and Apache-2.0 respectively; AndroidX Media3: Apache-2.0; OkHttp: Apache-2.0. Full notices are included with the source.").setNeutralButton("Account & history",(d,w)->navigate("account")).setPositiveButton("Got it",null).show();
     }
     private void hideKeyboard(){View focus=getCurrentFocus();if(focus!=null)getSystemService(InputMethodManager.class).hideSoftInputFromWindow(focus.getWindowToken(),0);}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}

@@ -9,6 +9,9 @@
    However, you may simply not be aware that a more recent version is
    available, and that is what this lint check helps find.
 
+/workspace/Cadence/app/build.gradle:56: Warning: A newer version of org.jsoup:jsoup than 1.23.2 is available: 1.24.1 [NewerVersionAvailable]
+    implementation 'org.jsoup:jsoup:1.23.2'
+                   ~~~~~~~~~~~~~~~~~~~~~~~~
 /workspace/Cadence/app/build.gradle:61: Warning: A newer version of com.squareup.okhttp3:okhttp than 4.12.0 is available: 5.5.1 [NewerVersionAvailable]
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -68,22 +71,46 @@
    you are already using the new API, consider moving the calls to the same
    file or suppressing the warning.
 
-/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:16: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
-        Switch enabled=new Switch(activity);enabled.setText("Equalizer enabled");enabled.setTextColor(palette.foreground());enabled.setChecked(equalizer.enabled());enabled.setOnCheckedChangeListener((v,on)->{equalizer.setEnabled(on);updateStatus();});page.addView(enabled,new LinearLayout.LayoutParams(-1,dp(56)));
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:18: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        Switch enabled=new Switch(activity);enabled.setText("Equalizer enabled");enabled.setTextColor(palette.foreground());enabled.setChecked(equalizer.enabled());enabled.setOnCheckedChangeListener((v,on)->{equalizer.setEnabled(on);updateStatus();});page.addView(enabled,new LinearLayout.LayoutParams(-1,dp(52)));
                                                             ~~~~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:23: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        TextView advanced=text(17);advanced.setText("Fine tune");advanced.setPadding(0,dp(16),0,dp(12));page.addView(advanced);
+                                                    ~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:24: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        TextView preampTitle=text(13);preampTitle.setText("Preamp · output attenuation");page.addView(preampTitle);LinearLayout gainRow=row();preamp=slider(1200,"Preamp attenuation");gainRow.addView(preamp,new LinearLayout.LayoutParams(0,dp(46),1));preampValue=text(12);gainRow.addView(preampValue,new LinearLayout.LayoutParams(dp(64),-2));page.addView(gainRow);preamp.setOnSeekBarChangeListener(change((value,user)->{preampValue.setText(db(value-1200));if(user){equalizer.setPreamp(value-1200);updateStatus();}}));
+                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 /workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:25: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
-        TextView note=text(12);note.setText("Applies to streaming and offline audio. Available bands and gain limits depend on your device. Settings are kept when you close the app.");page.addView(note);
-                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:30: Warning: Do not concatenate text displayed with setText. Use resource string with placeholders. [SetTextI18n]
-    private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve: "+equalizer.preset());}
-                                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:30: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
-    private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve: "+equalizer.preset());}
-                                                                                  ~~~~~~~~~
-/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:497: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        TextView balanceTitle=text(13);balanceTitle.setText("Stereo balance · left / right");page.addView(balanceTitle);LinearLayout balanceRow=row();balance=slider(200,"Stereo balance");balanceRow.addView(balance,new LinearLayout.LayoutParams(0,dp(46),1));balanceValue=text(12);balanceRow.addView(balanceValue,new LinearLayout.LayoutParams(dp(64),-2));page.addView(balanceRow);balance.setOnSeekBarChangeListener(change((value,user)->{int b=value-100;balanceValue.setText(b==0?"Center":(b<0?"L ":"R ")+Math.abs(b)+"%");if(user)equalizer.setBalance(b);}));
+                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:26: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        headroom=new Switch(activity);headroom.setText("Auto headroom");headroom.setTextSize(14);headroom.setTextColor(palette.foreground());headroom.setOnCheckedChangeListener((v,on)->{equalizer.setHeadroom(on);updateStatus();});page.addView(headroom,new LinearLayout.LayoutParams(-1,dp(48)));TextView help=text(11);help.setText("Reduces player gain for boosted tone bands. Balance applies to stereo PCM. The master toggle bypasses all sound adjustments.");page.addView(help);
+                                                       ~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:26: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        headroom=new Switch(activity);headroom.setText("Auto headroom");headroom.setTextSize(14);headroom.setTextColor(palette.foreground());headroom.setOnCheckedChangeListener((v,on)->{equalizer.setHeadroom(on);updateStatus();});page.addView(headroom,new LinearLayout.LayoutParams(-1,dp(48)));TextView help=text(11);help.setText("Reduces player gain for boosted tone bands. Balance applies to stereo PCM. The master toggle bypasses all sound adjustments.");page.addView(help);
+                                                                                                                                                                                                                                                                                                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:27: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        LinearLayout saved=row();Button save=new Button(activity);save.setAllCaps(false);save.setText("Save as preset");save.setOnClickListener(v->savePreset());saved.addView(save,new LinearLayout.LayoutParams(0,-2,1));Button load=new Button(activity);load.setAllCaps(false);load.setText("Saved presets");load.setOnClickListener(v->savedPresets(false));saved.addView(load,new LinearLayout.LayoutParams(0,-2,1));page.addView(saved);
+                                                                                                      ~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:27: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        LinearLayout saved=row();Button save=new Button(activity);save.setAllCaps(false);save.setText("Save as preset");save.setOnClickListener(v->savePreset());saved.addView(save,new LinearLayout.LayoutParams(0,-2,1));Button load=new Button(activity);load.setAllCaps(false);load.setText("Saved presets");load.setOnClickListener(v->savedPresets(false));saved.addView(load,new LinearLayout.LayoutParams(0,-2,1));page.addView(saved);
+                                                                                                                                                                                                                                                                                                ~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:28: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        Button reset=new Button(activity);reset.setAllCaps(false);reset.setText("Reset sound settings");reset.setOnClickListener(v->{equalizer.reset();refresh();});page.addView(reset);TextView note=text(11);note.setText("Tone-band support and gain limits depend on the audio output. Settings and custom presets stay on this device.");page.addView(note);
+                                                                                ~~~~~~~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:28: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        Button reset=new Button(activity);reset.setAllCaps(false);reset.setText("Reset sound settings");reset.setOnClickListener(v->{equalizer.reset();refresh();});page.addView(reset);TextView note=text(11);note.setText("Tone-band support and gain limits depend on the audio output. Settings and custom presets stay on this device.");page.addView(note);
+                                                                                                                                                                                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:37: Warning: Do not concatenate text displayed with setText. Use resource string with placeholders. [SetTextI18n]
+    private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve · "+equalizer.preset());if(curve!=null)curve.invalidate();}
+                                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:37: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+    private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve · "+equalizer.preset());if(curve!=null)curve.invalidate();}
+                                                                                  ~~~~~~~~~~
+/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:592: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
         RadioGroup formats=new RadioGroup(this);RadioButton original=new RadioButton(this);original.setId(View.generateViewId());original.setText("Original audio · Faster, smaller");original.setTextColor(FG);formats.addView(original);
                                                                                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:498: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:593: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
         RadioButton mp3=new RadioButton(this);mp3.setId(View.generateViewId());mp3.setText("MP3 · Convert on this device");mp3.setTextColor(FG);formats.addView(mp3);formats.check(original.getId());choices.addView(formats);space(choices,10);choices.addView(text("MP3 conversion takes extra time and storage. Interrupted transfers can continue when you retry.",12,MUTED,false));
                                                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -100,4 +127,4 @@
 
    https://developer.android.com/guide/topics/resources/localization.html
 
-0 errors, 12 warnings
+0 errors, 21 warnings

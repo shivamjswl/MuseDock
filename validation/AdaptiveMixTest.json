@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "test": "userQueueEditInvalidatesPendingRefresh[29]",
+      "passed": true
+    },
+    {
+      "test": "refreshedTailPreservesCurrentSongAndHistoryAndFiltersFeedback[29]",
+      "passed": true
+    },
+    {
+      "test": "ordinaryQueuesAndShuffleAreNotRewritten[29]",
+      "passed": true
+    },
+    {
+      "test": "emptyResultsOrTrackChangeKeepTheQueue[29]",
+      "passed": true
+    },
+    {
+      "test": "userQueueEditInvalidatesPendingRefresh",
+      "passed": true
+    },
+    {
+      "test": "refreshedTailPreservesCurrentSongAndHistoryAndFiltersFeedback",
+      "passed": true
+    },
+    {
+      "test": "ordinaryQueuesAndShuffleAreNotRewritten",
+      "passed": true
+    },
+    {
+      "test": "emptyResultsOrTrackChangeKeepTheQueue",
+      "passed": true
+    }
+  ],
+  "physical_device": false
+}

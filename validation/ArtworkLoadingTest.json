@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "test": "smallProviderPlaceholderIsRejectedEvenWithHttpSuccess[29]",
+      "passed": true
+    },
+    {
+      "test": "missingLargeImageFallsBackAndConcurrentRequestsShareFetch[29]",
+      "passed": true
+    },
+    {
+      "test": "largePlayerArtworkDoesNotReuseSmallListBitmap[29]",
+      "passed": true
+    },
+    {
+      "test": "smallProviderPlaceholderIsRejectedEvenWithHttpSuccess",
+      "passed": true
+    },
+    {
+      "test": "missingLargeImageFallsBackAndConcurrentRequestsShareFetch",
+      "passed": true
+    },
+    {
+      "test": "largePlayerArtworkDoesNotReuseSmallListBitmap",
+      "passed": true
+    }
+  ],
+  "physical_device": false
+}

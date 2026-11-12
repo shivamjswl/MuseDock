@@ -1,0 +1,17 @@
+{
+  "cases": [
+    {
+      "test": "pausesAndBufferingDoNotCount",
+      "passed": true
+    },
+    {
+      "test": "skippedBeforeAudioStartsIsNotNegativeFeedback",
+      "passed": true
+    },
+    {
+      "test": "shortSongsAndUnknownDurationsHaveMeaningfulThresholds",
+      "passed": true
+    }
+  ],
+  "physical_device": false
+}

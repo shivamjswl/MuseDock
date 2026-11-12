@@ -107,10 +107,10 @@
 /workspace/Cadence/app/src/main/java/app/cadence/EqualizerPanel.java:37: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
     private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve · "+equalizer.preset());if(curve!=null)curve.invalidate();}
                                                                                   ~~~~~~~~~~
-/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:592: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:611: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
         RadioGroup formats=new RadioGroup(this);RadioButton original=new RadioButton(this);original.setId(View.generateViewId());original.setText("Original audio · Faster, smaller");original.setTextColor(FG);formats.addView(original);
                                                                                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:593: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+/workspace/Cadence/app/src/main/java/app/cadence/MainActivity.java:612: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
         RadioButton mp3=new RadioButton(this);mp3.setId(View.generateViewId());mp3.setText("MP3 · Convert on this device");mp3.setTextColor(FG);formats.addView(mp3);formats.check(original.getId());choices.addView(formats);space(choices,10);choices.addView(text("MP3 conversion takes extra time and storage. Interrupted transfers can continue when you retry.",12,MUTED,false));
                                                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

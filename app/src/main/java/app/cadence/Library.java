@@ -10,19 +10,24 @@ public final class Library extends SQLiteOpenHelper {
     public record Playlist(String id, String name, int count, String description, long updated, boolean pinned) {}
     public record Download(Track track, String status, String path, String error) {}
     private final File audioDirectory;
-    public Library(Context context) { super(context, "cadence.db", null, 2); audioDirectory=new File(context.getFilesDir(),"audio"); }
+    public Library(Context context) { super(context, "cadence.db", null, 3); audioDirectory=new File(context.getFilesDir(),"audio"); }
     @Override public void onConfigure(SQLiteDatabase db) { db.setForeignKeyConstraintsEnabled(true); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE tracks(id TEXT PRIMARY KEY,title TEXT NOT NULL,artist TEXT NOT NULL,artwork TEXT NOT NULL,duration INTEGER NOT NULL,played INTEGER NOT NULL DEFAULT 0,play_count INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE playlists(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL DEFAULT 0,pinned INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE members(playlist TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,track TEXT NOT NULL REFERENCES tracks(id),position INTEGER NOT NULL,PRIMARY KEY(playlist,track))");
         db.execSQL("CREATE TABLE downloads(track TEXT PRIMARY KEY REFERENCES tracks(id),status TEXT NOT NULL,path TEXT,error TEXT NOT NULL DEFAULT '')");
-        db.execSQL("INSERT INTO playlists(id,name) VALUES('liked','Liked songs')");createDiscoveryTables(db);
+        db.execSQL("INSERT INTO playlists(id,name) VALUES('liked','Liked songs')");createDiscoveryTables(db);createFeedbackTable(db);
     }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if(oldVersion<2){db.execSQL("ALTER TABLE tracks ADD COLUMN play_count INTEGER NOT NULL DEFAULT 0");db.execSQL("UPDATE tracks SET play_count=1 WHERE played>0");db.execSQL("ALTER TABLE playlists ADD COLUMN description TEXT NOT NULL DEFAULT ''");db.execSQL("ALTER TABLE playlists ADD COLUMN updated INTEGER NOT NULL DEFAULT 0");db.execSQL("ALTER TABLE playlists ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");createDiscoveryTables(db);}
+        if(oldVersion<3)createFeedbackTable(db);
     }
     private void createDiscoveryTables(SQLiteDatabase db){db.execSQL("CREATE TABLE searches(query TEXT PRIMARY KEY COLLATE NOCASE,searched INTEGER NOT NULL,count INTEGER NOT NULL DEFAULT 1)");db.execSQL("CREATE TABLE hidden_recommendations(track TEXT PRIMARY KEY)");db.execSQL("CREATE TABLE discovery_cache(key TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,saved INTEGER NOT NULL,payload TEXT NOT NULL)");}
+    private void createFeedbackTable(SQLiteDatabase db){db.execSQL("CREATE TABLE listening_feedback(track TEXT PRIMARY KEY REFERENCES tracks(id),skips INTEGER NOT NULL DEFAULT 0,qualified INTEGER NOT NULL DEFAULT 0,last_skip INTEGER NOT NULL DEFAULT 0)");}
+    public record Feedback(String id,int skips,int qualified,long lastSkip){}
+    public synchronized List<Feedback> feedback(){List<Feedback> out=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT track,skips,qualified,last_skip FROM listening_feedback",null)){while(c.moveToNext())out.add(new Feedback(c.getString(0),c.getInt(1),c.getInt(2),c.getLong(3)));}return out;}
+    public synchronized void listening(Track track,boolean skipped){SQLiteDatabase db=getWritableDatabase();db.beginTransaction();try{remember(track);db.execSQL("INSERT OR IGNORE INTO listening_feedback(track) VALUES(?)",new Object[]{track.id()});if(skipped)db.execSQL("UPDATE listening_feedback SET skips=skips+1,last_skip=? WHERE track=?",new Object[]{System.currentTimeMillis(),track.id()});else{played(track);db.execSQL("UPDATE listening_feedback SET qualified=qualified+1,last_skip=0 WHERE track=?",new Object[]{track.id()});}db.setTransactionSuccessful();}finally{db.endTransaction();}}
     public record Search(String query,long searched,int count){}
     public record Taste(Track track,int plays,long lastPlayed,boolean liked){}
     public synchronized void recordSearch(String value){

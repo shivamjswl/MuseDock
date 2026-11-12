@@ -12,7 +12,7 @@ public record Track(String id, String title, String artist, String artwork, long
         Bundle extras = new Bundle();
         extras.putString("artist", artist); extras.putString("artwork", artwork); extras.putLong("duration", duration);
         MediaMetadata.Builder metadata = new MediaMetadata.Builder().setTitle(title).setArtist(artist).setExtras(extras);
-        if (!artwork.isEmpty()) metadata.setArtworkUri(Uri.parse(artwork));
+        if (!artworkUrl().isEmpty()) metadata.setArtworkUri(Uri.parse(artworkUrl()));
         return new MediaItem.Builder().setMediaId(id)
             .setUri(localPath == null ? url() : Uri.fromFile(new java.io.File(localPath)).toString())
             .setMimeType("audio/mp4").setMediaMetadata(metadata.build()).build();
@@ -21,6 +21,6 @@ public record Track(String id, String title, String artist, String artwork, long
         MediaMetadata m = item.mediaMetadata;
         return new Track(item.mediaId, String.valueOf(m.title == null ? "Untitled" : m.title),
             String.valueOf(m.artist == null ? "Unknown artist" : m.artist),
-            m.artworkUri == null ? "" : m.artworkUri.toString(), m.extras == null ? 0 : m.extras.getLong("duration"));
+            m.extras!=null&&m.extras.containsKey("artwork")?m.extras.getString("artwork",""):(m.artworkUri == null ? "" : m.artworkUri.toString()), m.extras == null ? 0 : m.extras.getLong("duration"));
     }
 }

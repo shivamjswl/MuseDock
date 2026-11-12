@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {
+      "test": "musicCoverResizesAndOriginalRemainsFallback",
+      "passed": true
+    },
+    {
+      "test": "signedOrUnknownUrlsArePreservedAndDecodeKeepsDisplayResolution",
+      "passed": true
+    },
+    {
+      "test": "videoCoverOffersLargeAndStandardFallbacks",
+      "passed": true
+    },
+    {
+      "test": "largestProviderImageWinsRatherThanFirst",
+      "passed": true
+    }
+  ],
+  "physical_device": false
+}

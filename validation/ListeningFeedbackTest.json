@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "test": "playbackFailureAndUnplayedTransitionsDoNotPenalize[29]",
+      "passed": true
+    },
+    {
+      "test": "sameTrackSeekingAndPauseDoNotCreateSkipsOrExtraPlays[29]",
+      "passed": true
+    },
+    {
+      "test": "actualMedia3NextTransitionRecordsSkipAndRequestsMixUpdate[29]",
+      "passed": true
+    },
+    {
+      "test": "playbackFailureAndUnplayedTransitionsDoNotPenalize",
+      "passed": true
+    },
+    {
+      "test": "sameTrackSeekingAndPauseDoNotCreateSkipsOrExtraPlays",
+      "passed": true
+    },
+    {
+      "test": "actualMedia3NextTransitionRecordsSkipAndRequestsMixUpdate",
+      "passed": true
+    }
+  ],
+  "physical_device": false
+}

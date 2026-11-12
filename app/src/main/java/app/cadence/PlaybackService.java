@@ -11,6 +11,25 @@ import androidx.media3.session.*;
 public final class PlaybackService extends MediaSessionService {
     private ExoPlayer player;
     private MediaSession session;
+    private final android.os.Handler handler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final java.util.concurrent.ExecutorService recommendations=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private java.util.concurrent.Future<?> refresh;private int generation;private boolean destroyed;
+    private ListeningFeedback feedback;
+    private void changed(){sendBroadcast(new android.content.Intent("app.musedock.TASTE_CHANGED").setPackage(getPackageName()));}
+    private final Runnable listenTick=new Runnable(){public void run(){if(destroyed)return;feedback.tick();handler.postDelayed(this,5000);}};
+    private void adaptMix(){
+        AdaptiveMix mix=AdaptiveMix.capture(player);if(mix==null)return;MediaItem current=player.getCurrentMediaItem();
+        if(refresh!=null)refresh.cancel(true);int version=++generation;MuseDockApp app=MuseDockApp.of(this);
+        Recommendations.Profile profile=Recommendations.profile(app.library,MusicLanguage.selected(this),0).withCurrent(Track.from(current));
+        refresh=recommendations.submit(()->{try{
+            var found=Recommendations.rank(profile,mix.mood,Recommendations.catalogCandidates(profile,mix.mood,app.catalog),12);
+            handler.post(()->{if(destroyed||version!=generation||player.getCurrentMediaItem()==null||!current.mediaId.equals(player.getCurrentMediaItem().mediaId))return;
+                mix.apply(player,found,app.library);
+            });
+        }catch(Exception ignored){/* Keep the remaining queue on network failure. */}});
+    }
+    static MediaItem autoMixItem(Track t,String local,String mood){MediaItem item=t.mediaItem(local);android.os.Bundle extras=new android.os.Bundle(item.mediaMetadata.extras);extras.putString("musedock.autoMix",mood);return item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build();}
+
     @Override public void onCreate(){
         super.onCreate();
         MuseDockApp app=MuseDockApp.of(this);
@@ -31,17 +50,12 @@ public final class PlaybackService extends MediaSessionService {
         player.setHandleAudioBecomingNoisy(true);
         player.setWakeMode(C.WAKE_MODE_LOCAL);app.equalizer.setGainListener(gain->player.setVolume(gain));
         player.addListener(new Player.Listener(){
-            private boolean counted;
-            private void recordListening(){MediaItem item=player.getCurrentMediaItem();if(!counted&&player.isPlaying()&&item!=null){Track track=app.library.track(item.mediaId);if(track!=null){app.library.played(track);counted=true;sendBroadcast(new android.content.Intent("app.musedock.TASTE_CHANGED").setPackage(getPackageName()));}}}
-            @Override public void onIsPlayingChanged(boolean playing){recordListening();}
             @Override public void onAudioSessionIdChanged(int id){app.equalizer.attach(id);}
-            @Override public void onMediaItemTransition(MediaItem item,int reason){
-                counted=false;recordListening();
-            }
-            @Override public void onPlayerError(PlaybackException error){
-                MediaItem current=player.getCurrentMediaItem();if(current!=null)app.youtube.invalidate(current.mediaId);
-            }
+            @Override public void onMediaItemTransition(MediaItem item,int reason){generation++;if(refresh!=null)refresh.cancel(true);}
+            @Override public void onPlayerError(PlaybackException error){MediaItem current=player.getCurrentMediaItem();if(current!=null)app.youtube.invalidate(current.mediaId);}
         });
+        feedback=new ListeningFeedback(player,app.library,android.os.SystemClock::elapsedRealtime,this::changed,()->handler.post(()->{if(!destroyed)adaptMix();}));player.addListener(feedback);
+        handler.post(listenTick);
         session=new MediaSession.Builder(this,player).setCallback(new MediaSession.Callback(){
             @Override public MediaSession.ConnectionResult onConnect(MediaSession s,MediaSession.ControllerInfo controller){
                 if(!controller.getPackageName().equals(getPackageName())&&!s.isMediaNotificationController(controller)&&!controller.isTrusted())return MediaSession.ConnectionResult.reject();
@@ -54,5 +68,5 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onTaskRemoved(android.content.Intent intent){
         if(!player.getPlayWhenReady()||player.getMediaItemCount()==0)stopSelf();
     }
-    @Override public void onDestroy(){MuseDockApp.of(this).equalizer.setGainListener(null);if(session!=null)session.release();if(player!=null)player.release();MuseDockApp.of(this).equalizer.release();super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;generation++;handler.removeCallbacksAndMessages(null);recommendations.shutdownNow();MuseDockApp.of(this).equalizer.setGainListener(null);if(session!=null)session.release();if(player!=null)player.release();MuseDockApp.of(this).equalizer.release();super.onDestroy();}
 }

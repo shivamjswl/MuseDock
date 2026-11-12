@@ -11,5 +11,6 @@ public interface MusicCatalog {
         Mode(String filter) { this.filter = filter; }
     }
     record Result(List<Track> tracks, List<PlaylistSource.Suggestion> albums, Page next, String query) {}
+    default List<Track> related(Track seed) throws Exception {return List.of();}
     Result search(String query, Page next, Mode mode) throws Exception;
 }

@@ -1,4 +1,4 @@
-package: name='app.cadence' versionCode='8' versionName='0.8.0' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'
+package: name='app.cadence' versionCode='9' versionName='0.9.0' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'
 sdkVersion:'29'
 targetSdkVersion:'37'
 application: label='MuseDock' icon='res/r2.xml'

@@ -15,5 +15,5 @@ for group in ['junit','org.hamcrest','com.squareup.okhttp3','com.squareup.okio',
 cmd=[str(Path(os.environ['JAVA_HOME'])/'bin/java') if 'JAVA_HOME' in os.environ else shutil.which('java'),'-cp',':'.join(map(str,cp)),'org.junit.runner.JUnitCore']
 cmd+=['app.cadence.'+x for x in ['AudioSourceCacheTest','ArtworkTest','ListeningTrackerTest','RecommendationsTest','MusicCatalogRoutingTest']]
 p=subprocess.run(cmd,text=True,capture_output=True);print(p.stdout,p.stderr)
-report=r/'validation/0.9.1';report.mkdir(parents=True,exist_ok=True);(report/'core-model-tests.txt').write_text(p.stdout+p.stderr)
+report=r/'validation/0.9.1';report.mkdir(parents=True,exist_ok=True);(report/'core-model-tests.txt').write_text((p.stdout+p.stderr).strip()+'\n')
 raise SystemExit(p.returncode)

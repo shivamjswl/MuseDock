@@ -1,10 +1,26 @@
 # MuseDock
 
-Developed by **Shivam Jaiswal**. Version **0.9.0**, for **Android 10 / API 29 and newer**.
+Developed by **Shivam Jaiswal**. Version **0.9.1 source update (not yet released)**, for **Android 10 / API 29 and newer**.
 
-[Download APK](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.9.0.apk) · [Complete corresponding source archive](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.9.0-source.zip)
+[Last published APK: 0.9.0](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.9.0.apk) · [Complete corresponding source archive](https://raw.githubusercontent.com/shivamjswl/MuseDock/downloads/MuseDock-0.9.0-source.zip)
 
 MuseDock is a native Android music player developed by Shivam Jaiswal. Search songs and albums, build playlists and keep offline copies on your device.
+
+## 0.9.1 performance and Music-catalog changes — release pending
+
+- Playback events reuse the mini-player instead of rebuilding its artwork and views. Progress ticks update only the time/seek controls, with no library queries. Playback status is read on a worker; starting a queue no longer writes every track and checks every offline file before sending Play.
+- History writes, recommendation profile/cache reads and ranking run off the UI thread. Recommendation jobs and their HTTP requests are cancelled when opening the player or leaving discovery. Background activities stop polling. Adaptive radio waits for the current track to become ready.
+- Audio extraction uses a bounded cache with per-track in-flight requests. A slow download of one track cannot lock playback of another track. Resolution reads the audio streams directly instead of constructing the full StreamInfo object.
+- Images decode to the row/card/player size and use separate cache buckets. Small covers no longer occupy full-player bitmap memory. Background image/discovery work runs at lower thread priority.
+- All discovery modes are YouTube Music **Songs**, **Albums**, and **music_playlists**. General YouTube video search and related-video recommendations are removed. Direct video IDs cannot bypass Music search. Explicit playlist imports and existing saved tracks remain playable; this update does not reclassify historical library content.
+
+Music catalog search targets `music.youtube.com`; playback still resolves the shared YouTube/Google audio delivery infrastructure through NewPipe. It is not an official YouTube Music SDK or a separate streaming CDN.
+
+**Release blocker:** the restored cloud workspace did not retain the original signing key. Release builds now stay unsigned unless the original key is supplied, and verify its certificate before signing. A newly generated debug key must never be published as an update. Full Android UI testing also awaits the saved Maven mirror network rule. See [VALIDATION.md](VALIDATION.md) for the checks actually completed. No 0.9.1 installation APK has been published.
+
+To sign after restoring the original key, set `MUSEDOCK_KEYSTORE`, `MUSEDOCK_KEYSTORE_PASSWORD`, and `MUSEDOCK_KEY_PASSWORD` through secure local/environment storage. `MUSEDOCK_KEY_ALIAS` defaults to `androiddebugkey`. Run `./gradlew :app:assembleRelease`; the build rejects a certificate different from the published app. Never commit the key or enter private key contents in chat. Preserve a secure backup outside disposable workspaces.
+
+Focused JVM checks: `python3 scripts/test-core-models.py`. These exercise the actual audio cache, recommendation model, artwork policies, listening thresholds and NewPipe Music routing; they do not replace `./gradlew :app:testDebugUnitTest` or phone performance checks.
 
 ## New in 0.9.0
 
@@ -14,7 +30,7 @@ MuseDock is a native Android music player developed by Shivam Jaiswal. Search so
 - **Adaptive generated queues:** early skips refresh the upcoming songs in generated mixes when shuffle is off. Already played/current songs are preserved, and an in-flight refresh is discarded if you change the queue. Saved playlist contents, ordinary queues and On repeat are not rewritten. A failed or empty provider response keeps the remaining queue.
 - **More colorful listening:** a tonal home header, translucent Liquid surfaces, crisp cover presentation, artwork-tinted player backgrounds and a new contained transport-control layout. Select Liquid under **⋯ → Appearance**; Material, Light and Dark remain available.
 
-Personalization is an original on-device ranking layer over public YouTube Music searches and YouTube related items. Style terms are textual clues, not verified audio analysis or a complete genre database. It is not Spotify's private recommendation system. Provider relevance and maximum artwork resolution vary; a missing high-resolution original cannot be made truly sharper by upscaling.
+Personalization is an original on-device ranking layer over public YouTube Music searches. Style terms are textual clues, not verified audio analysis or a complete genre database. It is not Spotify's private recommendation system. Provider relevance and maximum artwork resolution vary; a missing high-resolution original cannot be made truly sharper by upscaling.
 
 Playlist descriptions, pinning, duplication, merging, sorting, bulk removal, suggested additions, downloads and the expanded equalizer from 0.8 remain available.
 
@@ -86,6 +102,6 @@ See [VALIDATION.md](VALIDATION.md) for executed checks, remaining phone checks, 
 
 ## Privacy and licenses
 
-Music searches use YouTube Music or the selected YouTube video filter; playback and artwork requests go to YouTube/Google media and image hosts. Music-language preferences guide those search queries. Appearance, language, search/taste signals, hidden-song choices and custom sound presets are stored locally. Artist/search-derived queries are sent to YouTube Music, and current video IDs are used to request public related items; no complete listening database or developer-hosted profile is uploaded. No lyrics provider is contacted. Selected history exports and audio conversion stay on the device. Exporting writes to the destination/provider you choose in Android's file picker. Optional Google sign-in uses Google's native identity flow and stores only display name/email locally; no ID token is persisted or uploaded. No analytics or developer-hosted server is used.
+Music searches use YouTube Music; playback and artwork requests go to YouTube/Google media and image hosts. Music-language preferences guide those search queries. Appearance, language, search/taste signals, hidden-song choices and custom sound presets are stored locally. Artist/search-derived queries are sent to YouTube Music, and general related-video requests are disabled; no complete listening database or developer-hosted profile is uploaded. No lyrics provider is contacted. Selected history exports and audio conversion stay on the device. Exporting writes to the destination/provider you choose in Android's file picker. Optional Google sign-in uses Google's native identity flow and stores only display name/email locally; no ID token is persisted or uploaded. No analytics or developer-hosted server is used.
 
 Application code: GPL-3.0-or-later. Third-party material retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), `licenses/`, and included source headers. The optional Google-enabled build is subject to Google's SDK terms and must be reviewed for license compatibility before redistribution. MuseDock is not affiliated with YouTube, Spotify, or Google.

@@ -13,12 +13,12 @@ final class AdaptiveMix {
         Recommendations.Mood mood;try{mood=Recommendations.Mood.valueOf(mode);}catch(IllegalArgumentException e){return null;}if(mood==Recommendations.Mood.REPEAT)return null;
         List<MediaItem> items=new ArrayList<>();for(int i=0;i<player.getMediaItemCount();i++)items.add(player.getMediaItemAt(i));return new AdaptiveMix(items,player.getCurrentMediaItemIndex(),mood);
     }
-    boolean apply(Player player,List<Track> candidates,Library library){
+    boolean apply(Player player,List<Track> candidates,Library library){return apply(player,candidates,Recommendations.profile(library,MusicLanguage.ANY,0));}
+    boolean apply(Player player,List<Track> candidates,Recommendations.Profile profile){
         if(player.getShuffleModeEnabled()||player.getCurrentMediaItemIndex()!=index||player.getMediaItemCount()!=snapshot.size())return false;
         for(int i=0;i<snapshot.size();i++)if(!snapshot.get(i).equals(player.getMediaItemAt(i)))return false;
         Set<String> used=new HashSet<>();for(int i=0;i<=index;i++)used.add(snapshot.get(i).mediaId);
-        Recommendations.Profile profile=Recommendations.profile(library,MusicLanguage.ANY,0);
-        List<MediaItem> next=new ArrayList<>();for(Track t:candidates)if(!Recommendations.blocked(profile,t.id())&&used.add(t.id())){library.remember(t);next.add(PlaybackService.autoMixItem(t,library.offline(t.id()),mood.name()));}
+        List<MediaItem> next=new ArrayList<>();for(Track t:candidates)if(!Recommendations.blocked(profile,t.id())&&used.add(t.id())){next.add(PlaybackService.autoMixItem(t,null,mood.name()));}
         if(next.isEmpty())return false;player.replaceMediaItems(index+1,player.getMediaItemCount(),next);return true;
     }
 }

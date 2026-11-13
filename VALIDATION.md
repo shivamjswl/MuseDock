@@ -1,43 +1,48 @@
-# MuseDock 0.9.0 validation
+# MuseDock 0.9.1 validation — release pending
 
-Checked 12 November 2026 (UTC).
+Checked 13 November 2026 (UTC). This source update is on `fix/music-playback-performance`. There is **no newly published installation APK**.
 
-- Full automated suite: **188 passed**, zero failures, errors or skipped tests.
-- Release and instrumentation APK assembly passed. Debug/release lint: zero errors (advisories retained in validation/).
-- APK: MuseDock 0.9.0 / versionCode 9, minimum API 29, compile/target API 37, no maximum SDK or ABI split. Non-debuggable, no testOnly.
-- Original certificate retained; signature verification API 29–37 and 16 KiB zip alignment passed. No native .so files. Desugaring present.
-- APK SHA-256: `743dbb3373ab6ac7edfd4a8202445aadd0237a3c832159cebbf4db74c0420856`.
+| Check | Current result |
+| --- | --- |
+| Application compilation | Passed |
+| Unsigned release assembly | Passed: versionCode 10, versionName 0.9.1, min API 29 / target 37 |
+| Debug instrumentation APK assembly | Passed; not executed on a device |
+| Focused JVM tests | **26 passed**, zero failures |
+| Debug/release application-only lint | **0 errors, 17 warnings** each; test sources excluded with an external init script |
+| Full Android/Robolectric suite | **Blocked before execution**: native runtime artifact redirects to `gcp.mirrors.maven.org`, denied by current cloud policy |
+| New Android UI regression tests | Compiled; not executed because of that blocker |
+| Original signing key | Missing after workspace restoration |
+| Wrong-key release guard | Passed: newly generated test key rejected before release signing |
+| Live YouTube Music / device latency | Not verified here |
 
-## Artwork
+Current evidence is under `validation/0.9.1/`. All other existing framework images, signature files and test reports under `validation/` describe **0.9.0**, not this revision. Do not cite the earlier 188-test run as current validation.
 
-The extractor now chooses the largest reported image. Known Google cover URLs request 320/640/1280 sizes as appropriate; large video art requests try maxres, sd and hq variants. Supplied URLs remain fallbacks and unknown/signed URLs are preserved. Decode retains high resolution instead of scaling every image down for list rows. Concurrent identical requests share work. The byte/dimension limits, cache budget and HTTPS checks remain bounded.
+## Checks executed
 
-Four pure artwork-policy checks and six framework image-loader checks verify provider-size selection, resized URLs, fallback ordering, preserving signed/unknown URLs, decode sizing, actual 1280-pixel player images after a smaller list fetch, HTTP-error/undersized-placeholder fallback and request coalescing. Network responses in those loader tests are injected PNG fixtures; they do not establish live CDN access. Missing high-resolution originals cannot be restored by upscaling. Native four-theme player renders use original 1280-pixel test artwork; home fixtures remain explicitly labeled test mixes.
+`python3 scripts/test-core-models.py` compiles the regular unit-test sources and executes these existing/new JUnit classes directly without the blocked Android runtime:
 
-## Listening and recommendations
+- AudioSourceCacheTest: four checks, including a held download extraction while a different playback track completes, cache refresh, failed-request retry and invalidated in-flight result protection.
+- ArtworkTest: four checks for provider sizes, supported Music cover URLs, fallback URLs, signed URL preservation and decode sampling.
+- ListeningTrackerTest: three checks for audible time, pause/buffering exclusion, unplayed skips and short/unknown-duration thresholds.
+- RecommendationsTest: eleven checks for taste signals, search/mood diversification, feedback, ranking, cache scope and failing Music search without generic-video fallback.
+- MusicCatalogRoutingTest: four checks against the pinned NewPipe implementation: all song/album modes select the Music host and extractor; playlists use the Music playlist filter; direct video IDs cannot bypass Music search; Music watch links reach the shared audio extractor.
 
-Schema 3 adds a listening-feedback table. Twelve migration/library checks across API 29 and 37 include upgrades from schema 1 and 2, retention of prior searches/tracks/memberships/download paths, feedback persistence and playlist editing/transactions. Technical installation/database identities remain unchanged.
+These are actual compiled production classes. They do not establish full Android UI behavior or measured phone startup latency.
 
-Three clock-based tracker tests plus six Media3 listener tests across API 29 and 37 verify early skips, audible-time thresholds, buffering/pause exclusion, real ExoPlayer next-item callbacks, same-item seeking, single positive credit, errors and unplayed transitions. Meaningful listening is 30 seconds or half the song (minimum five seconds for short songs); early skips are before 30 seconds and a quarter of known duration. Unknown duration uses the 30-second threshold. A recent skip suppresses that song for seven days; subsequent qualified listening clears that cooldown. Historical play-start counts are retained but cannot be retroactively corrected.
+The added PlaybackResponsivenessTest has eight API-29/37 cases covering view reuse, progress ticks under a database lock, Play with a 100-track queue under that lock, and deferring recommendation work while the player is open. These cases **have not executed**. Existing UI assertions were updated to require Music-only discovery and size-appropriate row images; no full-suite assertions were disabled.
 
-Eleven recommendation tests verify current-song/singer weighting, explicit style clues and word boundaries, distinct mood ranking, search retrieval, multiple queries, duplicate/hidden/familiar filtering, diversity, feedback suppression/recovery, cached re-ranking and provider-related fallback. Queries are heuristics over public YouTube Music search results. Optional public YouTube related items broaden the candidate pool; this is not authenticated account recommendations or Spotify's private model. Artist metadata may be uploader names, and textual genre/mood hints are not verified audio analysis. Provider content relevance still requires real listening.
+## Build and lint scope
 
-Eight adaptive-queue checks across API 29 and 37 verify that generated-mix refreshes retain prior/current songs, filter feedback/duplicates, reject stale queue snapshots and keep ordinary/shuffled queues or empty-result queues intact. Refreshes apply only to generated mixes with shuffle off, not On repeat or saved playlist contents. User edits, changing tracks, unavailable providers and activity/service teardown cannot allow a late result to overwrite a new queue. Physical background/headset behavior remains a phone check.
+The normal `:app:assembleRelease` and `:app:assembleDebugAndroidTest` tasks completed. Release signing is deliberately unconfigured without the restored production identity; the output is `app-release-unsigned.apk`, not an installable update. A new test/debug key exists only for local debug assembly. It is not the previous signing key and is not published.
 
-## UI and regression checks
+Normal full lint also tried to build the blocked unit-test runtime model. Application-only lint was then run with a temporary init script setting `android.lint.ignoreTestSources = true`. It passed for both debug and release. This is narrower than full lint; it is not evidence that test-source lint or the full Android test suite passed. The repository's normal lint policy remains unchanged.
 
-Native framework renders cover the colorful home and mood collections, updated player with cover-derived tint and rounded transport controls, translucent Liquid surfaces, Library, playlist editing and sound tools. Original generated artwork is used only for tests. Existing 45-case API 29–37 custom-playlist matrix, download/resume/export, queue, history, account, four-theme/language, equalizer/gain/PCM and discovery UI suites remain green.
+Toolchain restored: JDK 21, AGP 9.3.3, Gradle 9.5.0, Android Platform 37.0 / Build Tools 37.0.0, pinned NewPipe and nanojson source. TLS and configured proxy policy remained enabled. Official repository checksums were preserved. No private signing material was copied to source or downloads.
 
-The first validation pass caught an original-artwork metadata roundtrip regression; Track.from now preserves the source artwork field from MediaItem extras, while notification metadata still gets the fallback. The unchanged queue equality test passed after correction.
+## Remaining acceptance
 
-## Limits and phone acceptance
-
-The current enforced cloud network policy does not include YouTube/Music/image destinations; live provider and CDN behavior was not verified. Previously saved access proposals have not been applied. No network-policy bypass was used. No physical phone installation or audible playback claim is made by these tests.
-
-1. Update over the existing app and confirm playlists, downloads and searches remain.
-2. Search/play different singers and styles, compare recommendations and mood collections, and check large covers against rows on the actual phone.
-3. Skip a generated-mix track within a few audible seconds (shuffle off), wait for the network refresh and confirm only upcoming songs change. Try pause/buffering, same-track seeks, a manual queue edit during refresh, a saved playlist and offline failures.
-4. Play a cooled-down song intentionally for 30 seconds to restore its eligibility; restart and check feedback persistence.
-5. Compare player/layout readability under Material, Light, Dark and Liquid, including large font sizes, system insets and accessibility controls.
-
-Toolchain: JDK 21, AGP 9.3.3, Gradle 9.5.0, Android SDK/Build Tools 37.0, Robolectric 4.17. Corresponding dependency sources and notices accompany the source archive; private signing material is excluded.
+1. Review/save the pending network proposal for `gcp.mirrors.maven.org` in environment settings; publish for future sessions. The draft also adds `lh3.googleusercontent.com` for Music cover checks and corrects startup paths. Saving a draft alone has not applied these domains.
+2. Run the full `:app:testDebugUnitTest :app:lintDebug :app:lintRelease` commands with the permitted dependency available. Inspect any functional failures before release.
+3. Restore the original key securely from a previous environment snapshot or backup. Its certificate SHA-256 must match `38e32e997464806ba585d116b36dde477b5fc815f4059f793ede084c7114c505`. A public APK cannot restore the private key. The release build refuses a replacement certificate.
+4. Measure tap-to-play and navigation on the actual phone, with/without an active download, long queues, offline playback, buffering, rapid skips, background notification controls and cold/warm artwork caches.
+5. Verify actual Music-catalog relevance and network failures. Existing imported playlists/tracks remain compatible but are not retroactively certified as Music catalog entries. Playback uses YouTube/Google's shared media infrastructure.

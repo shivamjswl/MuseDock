@@ -33,7 +33,7 @@ public final class MuseDockFeaturesTest {
         for(MusicCatalog.Mode mode:List.of(MusicCatalog.Mode.SONGS,MusicCatalog.Mode.ALBUMS)){
             var query=ServiceList.YouTube.getSearchQHFactory().fromQuery("Test artist",List.of(mode.filter),"");assertTrue(query.getUrl().startsWith("https://music.youtube.com/"));assertTrue(ServiceList.YouTube.getSearchExtractor(query).getClass().getSimpleName().contains("Music"));
         }
-        var regular=ServiceList.YouTube.getSearchQHFactory().fromQuery("Test",List.of(MusicCatalog.Mode.VIDEOS.filter),"");assertTrue(regular.getUrl().startsWith("https://www.youtube.com/"));
+        var playlists=ServiceList.YouTube.getSearchQHFactory().fromQuery("Test",List.of("music_playlists"),"");assertTrue(playlists.getUrl().startsWith("https://music.youtube.com/"));assertEquals(2,MusicCatalog.Mode.values().length);
     }
     @Test public void albumBrowsingPagesDeduplicatesOpensAndSavesTracks()throws Exception{
         try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){
@@ -41,9 +41,9 @@ public final class MuseDockFeaturesTest {
             click(root,"Load more albums");await(root,"Second test album");assertEquals(1,count(root,"Original test album"));click(root,"Original test album");await(root,"Original test song");click(root,"Save 1 songs to Library");AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();idle();Library.Playlist saved=app.library.playlists().stream().filter(p->p.name().equals("Original test album")).findFirst().orElseThrow();assertEquals(List.of(song),app.library.playlistTracks(saved.id()));
         }
     }
-    @Test public void songsDefaultAndVideoFallbackUseSeparateFilters()throws Exception{
+    @Test public void songsAndAlbumsUseMusicWithoutVideoFallback()throws Exception{
         try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){
-            View root=controller.get().getWindow().getDecorView();click(root,"Search");EditText input=input(root);input.setText("Test artist");input.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);await(root,"Original test song");assertEquals(MusicCatalog.Mode.SONGS,requested);click(root,"YouTube videos");await(root,"Original test song");assertEquals(MusicCatalog.Mode.VIDEOS,requested);
+            View root=controller.get().getWindow().getDecorView();click(root,"Search");EditText input=input(root);input.setText("Test artist");input.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);await(root,"Original test song");assertEquals(MusicCatalog.Mode.SONGS,requested);assertNull(find(root,"YouTube videos"));click(root,"Albums");await(root,"Original test album");assertEquals(MusicCatalog.Mode.ALBUMS,requested);
         }
     }
     @Test public void equalizerIsDiscoverableAndPresetControlsPersist(){

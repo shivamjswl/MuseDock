@@ -12,19 +12,23 @@ public final class PlaybackService extends MediaSessionService {
     private ExoPlayer player;
     private MediaSession session;
     private final android.os.Handler handler=new android.os.Handler(android.os.Looper.getMainLooper());
-    private final java.util.concurrent.ExecutorService recommendations=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.ExecutorService recommendations=BackgroundWork.pool(1,"MuseDock-radio");
     private java.util.concurrent.Future<?> refresh;private int generation;private boolean destroyed;
+    private String pendingMixId;
     private ListeningFeedback feedback;
+    private final java.util.concurrent.ExecutorService feedbackIO=BackgroundWork.pool(1,"MuseDock-feedback");
     private void changed(){sendBroadcast(new android.content.Intent("app.musedock.TASTE_CHANGED").setPackage(getPackageName()));}
     private final Runnable listenTick=new Runnable(){public void run(){if(destroyed)return;feedback.tick();handler.postDelayed(this,5000);}};
+    private void refreshReadyMix(){if(pendingMixId==null||player.getCurrentMediaItem()==null)return;if(!pendingMixId.equals(player.getCurrentMediaItem().mediaId)){pendingMixId=null;return;}if(player.getPlaybackState()==Player.STATE_READY){pendingMixId=null;adaptMix();}}
     private void adaptMix(){
         AdaptiveMix mix=AdaptiveMix.capture(player);if(mix==null)return;MediaItem current=player.getCurrentMediaItem();
         if(refresh!=null)refresh.cancel(true);int version=++generation;MuseDockApp app=MuseDockApp.of(this);
-        Recommendations.Profile profile=Recommendations.profile(app.library,MusicLanguage.selected(this),0).withCurrent(Track.from(current));
+        MusicLanguage language=MusicLanguage.selected(this);
         refresh=recommendations.submit(()->{try{
+            Recommendations.Profile profile=Recommendations.profile(app.library,language,0).withCurrent(Track.from(current));
             var found=Recommendations.rank(profile,mix.mood,Recommendations.catalogCandidates(profile,mix.mood,app.catalog),12);
             handler.post(()->{if(destroyed||version!=generation||player.getCurrentMediaItem()==null||!current.mediaId.equals(player.getCurrentMediaItem().mediaId))return;
-                mix.apply(player,found,app.library);
+                mix.apply(player,found,profile);
             });
         }catch(Exception ignored){/* Keep the remaining queue on network failure. */}});
     }
@@ -50,11 +54,12 @@ public final class PlaybackService extends MediaSessionService {
         player.setHandleAudioBecomingNoisy(true);
         player.setWakeMode(C.WAKE_MODE_LOCAL);app.equalizer.setGainListener(gain->player.setVolume(gain));
         player.addListener(new Player.Listener(){
+            @Override public void onPlaybackStateChanged(int state){if(state==Player.STATE_READY)refreshReadyMix();}
             @Override public void onAudioSessionIdChanged(int id){app.equalizer.attach(id);}
-            @Override public void onMediaItemTransition(MediaItem item,int reason){generation++;if(refresh!=null)refresh.cancel(true);}
+            @Override public void onMediaItemTransition(MediaItem item,int reason){generation++;if(refresh!=null)refresh.cancel(true);app.youtube.cancelRequestsFor("MuseDock-radio");}
             @Override public void onPlayerError(PlaybackException error){MediaItem current=player.getCurrentMediaItem();if(current!=null)app.youtube.invalidate(current.mediaId);}
         });
-        feedback=new ListeningFeedback(player,app.library,android.os.SystemClock::elapsedRealtime,this::changed,()->handler.post(()->{if(!destroyed)adaptMix();}));player.addListener(feedback);
+        feedback=new ListeningFeedback(player,(track,skipped)->feedbackIO.execute(()->{app.library.listening(track,skipped);handler.post(()->{if(destroyed)return;changed();if(skipped){pendingMixId=player.getCurrentMediaItem()==null?null:player.getCurrentMediaItem().mediaId;handler.postDelayed(()->{if(!destroyed)refreshReadyMix();},1500);}});}),android.os.SystemClock::elapsedRealtime,this::changed,()->{});player.addListener(feedback);
         handler.post(listenTick);
         session=new MediaSession.Builder(this,player).setCallback(new MediaSession.Callback(){
             @Override public MediaSession.ConnectionResult onConnect(MediaSession s,MediaSession.ControllerInfo controller){
@@ -68,5 +73,5 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onTaskRemoved(android.content.Intent intent){
         if(!player.getPlayWhenReady()||player.getMediaItemCount()==0)stopSelf();
     }
-    @Override public void onDestroy(){destroyed=true;generation++;handler.removeCallbacksAndMessages(null);recommendations.shutdownNow();MuseDockApp.of(this).equalizer.setGainListener(null);if(session!=null)session.release();if(player!=null)player.release();MuseDockApp.of(this).equalizer.release();super.onDestroy();}
+    @Override public void onDestroy(){destroyed=true;generation++;handler.removeCallbacksAndMessages(null);recommendations.shutdownNow();feedbackIO.shutdown();MuseDockApp.of(this).equalizer.setGainListener(null);if(session!=null)session.release();if(player!=null)player.release();MuseDockApp.of(this).equalizer.release();super.onDestroy();}
 }

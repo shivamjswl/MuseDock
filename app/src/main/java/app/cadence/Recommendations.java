@@ -57,7 +57,7 @@ public final class Recommendations {
         } else if(mood!=Mood.REPEAT){queries.add(mood.intent+(seed.isEmpty()?"":" "+seed));queries.add(mood.intent+(profile.rotation()%2==0?" mix":" discoveries"));}
         List<String> out=new ArrayList<>();for(String q:queries)out.add(profile.language().query(q));return out;
     }
-    public static String retrievalKey(Profile profile,Mood mood){return "v2|"+profile.language().name()+"|"+profile.rotation()+"|"+String.join("|",queries(profile,mood));}
+    public static String retrievalKey(Profile profile,Mood mood){return "music-only-v3|"+profile.language().name()+"|"+profile.rotation()+"|"+String.join("|",queries(profile,mood));}
     public static List<String> playlistQueries(Profile profile){List<String> out=new ArrayList<>();for(String artist:artists(profile)){out.add(profile.language().query(artist+" music mix playlists"));if(out.size()==2)break;}if(!profile.searches().isEmpty())out.add(profile.language().query(profile.searches().get(Math.floorMod((int)profile.rotation(),profile.searches().size())).query()+" playlists"));if(out.isEmpty())out.add(profile.language().query("discover music mix playlists"));return out;}
     public static List<Track> load(Profile profile,Mood mood,Songs source)throws Exception{
         return rank(profile,mood,candidates(profile,mood,source),12);
@@ -69,9 +69,7 @@ public final class Recommendations {
         List<Track> result=new ArrayList<>(pool.values());if(result.size()>72)result=new ArrayList<>(result.subList(0,72));if(result.isEmpty()&&failure!=null)throw failure;return result;
     }
     public static List<Track> catalogCandidates(Profile profile,Mood mood,MusicCatalog catalog)throws Exception{
-        List<Track> related=new ArrayList<>();if(mood==Mood.FOR_YOU&&profile.current()!=null)try{related.addAll(catalog.related(profile.current()));}catch(Exception ignored){}
-        try{related.addAll(candidates(profile,mood,q->catalog.search(q,null,MusicCatalog.Mode.SONGS).tracks()));}catch(Exception error){if(related.isEmpty())throw error;}
-        LinkedHashMap<String,Track> unique=new LinkedHashMap<>();for(Track t:related)unique.putIfAbsent(t.id(),t);return new ArrayList<>(unique.values()).subList(0,Math.min(72,unique.size()));
+        return candidates(profile,mood,q->catalog.search(q,null,MusicCatalog.Mode.SONGS).tracks());
     }
     public static List<Track> repeat(Profile profile){List<Library.Taste> ordered=new ArrayList<>(profile.taste());ordered.sort(Comparator.<Library.Taste>comparingInt(t->t.plays()+(t.liked()?3:0)).reversed().thenComparing(Comparator.comparingLong(Library.Taste::lastPlayed).reversed()));return ordered.stream().map(Library.Taste::track).filter(t->!blocked(profile,t.id())).limit(12).collect(java.util.stream.Collectors.toList());}
     public static List<Track> rank(Profile profile,Mood mood,List<Track> candidates,int limit){

@@ -2,6 +2,11 @@ package app.cadence;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public final class PlaylistLinksTest {
+    @Test public void recognizesYouTubeMusicLinksOnly(){
+        assertTrue(PlaylistLinks.isMusicLink("https://music.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assertFalse(PlaylistLinks.isMusicLink("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assertFalse(PlaylistLinks.isMusicLink("https://music.youtube.com.example.org/playlist?list=PL_test"));
+    }
     @Test public void canonicalizesPlaylistsAndDropsTracking(){
         assertEquals("https://www.youtube.com/playlist?list=PL_test-123",PlaylistLinks.canonical("https://music.youtube.com/playlist?list=PL_test-123&si=tracking"));
         assertEquals("https://www.youtube.com/playlist?list=PL_test-123",PlaylistLinks.canonical("http://m.youtube.com/watch?v=dQw4w9WgXcQ&list=PL_test-123"));

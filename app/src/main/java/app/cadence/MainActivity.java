@@ -74,25 +74,26 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private volatile boolean closing=false;
     private String pendingExport;
     private static final int PICK_HISTORY=81,EXPORT_AUDIO=82;
-    private TextView nowTitle,nowArtist,nowStatus,elapsed,total,miniTitle,miniArtist;
+    private TextView nowTitle,nowArtist,nowStatus,elapsed,total;
+    private Track miniTrack;
     private ImageView nowArt;
     private FrameLayout nowArtFrame;
     private SeekBar seek;
     private Icons playIcon,likeIcon,shuffleIcon,repeatIcon,miniPlay;
     private boolean dragging=false,adaptivePlayback=false;private Recommendations.Mood adaptiveMood=Recommendations.Mood.FOR_YOU;
     private void playMix(List<Track> tracks,int index,boolean shuffle){adaptivePlayback=true;adaptiveMood=tab.equals("mix")?openedMood:Recommendations.Mood.FOR_YOU;try{play(tracks,index,shuffle);}finally{adaptivePlayback=false;}}
-    private final Runnable tasteRefresh=()->{if(closing)return;refreshDiscovery(false);if(tab.equals("home"))loadSuggestions(recommendationQuery());};
+    private final Runnable tasteRefresh=()->{if(closing||(!tab.equals("home")&&!tab.equals("mix")))return;refreshDiscovery(false);if(tab.equals("home"))loadSuggestions(recommendationQuery());};
     private final BroadcastReceiver downloadsChanged=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if("app.musedock.TASTE_CHANGED".equals(i.getAction())){handler.removeCallbacks(tasteRefresh);handler.postDelayed(tasteRefresh,750);}else if(tab.equals("offline"))render();}};
     private final Player.Listener listener=new Player.Listener(){
         @Override public void onEvents(Player p,Player.Events events){updateMini();updateNow();}
         @Override public void onPlayerError(PlaybackException error){toast("Playback failed. Check your connection, then tap Play to retry.");}
     };
-    private final Runnable ticker=new Runnable(){public void run(){updateNow();handler.postDelayed(this,500);}};
+    private final Runnable ticker=new Runnable(){public void run(){if(nowDialog!=null&&nowDialog.isShowing()&&player!=null)updatePosition();handler.postDelayed(this,500);}};
     @Override public void onCreate(Bundle state){
         palette=ThemePalette.current(this);setTheme(palette.style());super.onCreate(state);app=MuseDockApp.of(this);
         BG=palette.background();SURFACE=palette.surface();RAISED=palette.raised();FG=palette.foreground();MUTED=palette.muted();GREEN=palette.accent();INK=palette.onAccent();
         WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightStatusBars(palette.light());WindowCompat.getInsetsController(getWindow(),getWindow().getDecorView()).setAppearanceLightNavigationBars(palette.light());
-        if(state!=null){addTargetPlaylistId=state.getString("addTarget");openedMood=Recommendations.Mood.valueOf(state.getString("mood","FOR_YOU"));searchMode=MusicCatalog.Mode.valueOf(state.getString("searchMode","SONGS"));tab=state.getString("tab","home");query=state.getString("query","");playlistId=state.getString("playlist");playlistName=state.getString("playlistName","");pendingExport=state.getString("pendingExport");}
+        if(state!=null){addTargetPlaylistId=state.getString("addTarget");openedMood=Recommendations.Mood.valueOf(state.getString("mood","FOR_YOU"));searchMode="ALBUMS".equals(state.getString("searchMode"))?MusicCatalog.Mode.ALBUMS:MusicCatalog.Mode.SONGS;tab=state.getString("tab","home");query=state.getString("query","");playlistId=state.getString("playlist");playlistName=state.getString("playlistName","");pendingExport=state.getString("pendingExport");}
         if(getIntent().getBooleanExtra("offline",false))tab="offline";
         WindowCompat.setDecorFitsSystemWindows(getWindow(),false);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -102,7 +103,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         getOnBackPressedDispatcher().addCallback(this,new androidx.activity.OnBackPressedCallback(true){@Override public void handleOnBackPressed(){goBack();}});
         androidx.core.content.ContextCompat.registerReceiver(this,downloadsChanged,tasteFilter(),androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         handler.post(ticker);
-        handler.post(()->{loadSuggestions(recommendationQuery());refreshDiscovery(false);});
+        handler.post(tasteRefresh);
     }
     @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);s.putString("addTarget",addTargetPlaylistId);s.putString("mood",openedMood.name());s.putString("searchMode",searchMode.name());s.putString("tab",tab);s.putString("query",query);s.putString("playlist",playlistId);s.putString("playlistName",playlistName);s.putString("pendingExport",pendingExport);}
     @Override protected void onDestroy(){
@@ -141,7 +142,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);
         body=column();body.setPadding(dp(22),dp(12),dp(22),dp(28));scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         switch(tab){case "search"->searchScreen();case "library"->{if(playlistId==null)libraryScreen();else playlistScreen();}case "offline"->offlineScreen();case "youtube-playlist"->remotePlaylistScreen();case "account"->accountScreen();case "settings"->settingsScreen();case "mix"->mixScreen();default->homeScreen();}
-        mini=column();mini.setPadding(dp(10),0,dp(10),dp(4));add(root,mini,-2);updateMini();
+        mini=column();miniTrack=null;mini.setPadding(dp(10),0,dp(10),dp(4));add(root,mini,-2);updateMini();
         nav=row();nav.setPadding(dp(8),dp(4),dp(8),dp(6));nav.setBackgroundColor(BG);
         String[][] tabs={{"home","home","Listen"},{"search","search","Search"},{"library","library","Library"},{"offline","download","Offline"}};
         for(String[] t:tabs){LinearLayout item=column();item.setGravity(Gravity.CENTER);boolean active=t[0].equals(tab)||(t[0].equals("home")&&(tab.equals("youtube-playlist")||tab.equals("mix")));Icons i=icon(t[1],active?GREEN:MUTED,null);FrameLayout bubble=new FrameLayout(this);if(active)bubble.setBackground(bg(palette.selected(),24));bubble.addView(i,new FrameLayout.LayoutParams(dp(32),dp(30),Gravity.CENTER));item.addView(bubble,new LinearLayout.LayoutParams(dp(64),dp(30)));TextView name=label(t[2],11,active?GREEN:MUTED,active);name.setGravity(Gravity.CENTER);item.addView(name);item.setContentDescription(t[2]);item.setOnClickListener(v->navigate(t[0]));nav.addView(item,new LinearLayout.LayoutParams(0,dp(56),1));}
@@ -297,7 +298,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     }
     private void remotePlaylistScreen(){
         if(remotePlaylist==null){add(body,text("Choose a playlist from Listen.",16,FG,false),-2);return;}
-        LinearLayout top=row();Icons back=icon("back",FG,this::goBack);back.setContentDescription("Back from YouTube playlist");top.addView(back);top.addView(text(remoteAlbum?"ALBUM · YOUTUBE MUSIC":"YOUTUBE / YOUTUBE MUSIC",11,GREEN,true));add(body,top,48);space(body,12);
+        LinearLayout top=row();Icons back=icon("back",FG,this::goBack);back.setContentDescription("Back from YouTube playlist");top.addView(back);top.addView(text(remoteAlbum?"ALBUM · YOUTUBE MUSIC":"YOUTUBE MUSIC",11,GREEN,true));add(body,top,48);space(body,12);
         add(body,text(remotePlaylist.title(),30,FG,true),-2);space(body,8);add(body,text(remotePlaylist.author()+(remoteAlbum?" · Album":" · Public playlist"),13,MUTED,false),-2);space(body,18);
         if(!remoteTracks.isEmpty()){
             List<Track> queue=new ArrayList<>(remoteTracks);LinearLayout actions=row();actions.addView(button("▶  Play",true,()->play(queue,0,false)),new LinearLayout.LayoutParams(0,dp(48),1));TextView shuffle=button("Shuffle",false,()->play(queue,0,true));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1);lp.setMarginStart(dp(10));actions.addView(shuffle,lp);add(body,actions,-2);space(body,10);
@@ -321,12 +322,12 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         if(addTargetPlaylistId!=null){LinearLayout adding=row();adding.addView(text("Choose songs to add to your playlist",12,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));adding.addView(button("Done",false,()->{String id=addTargetPlaylistId;addTargetPlaylistId=null;openOwnPlaylist(id);}));add(body,adding,48);space(body,10);}
         add(body,text("Find your next listen.",28,FG,true),-2);space(body,8);add(body,text("Search YouTube Music songs and albums, or paste a link.",14,MUTED,false),-2);space(body,20);
         addLanguageChip();space(body,14);
-        LinearLayout bar=row();bar.setBackground(border(SURFACE,16));bar.addView(icon("search",MUTED,null));EditText input=new EditText(this);input.setSingleLine(true);input.setTextColor(FG);input.setHintTextColor(MUTED);input.setTextSize(15);input.setHint("Songs, artists, or a YouTube link");input.setText(query);input.setBackgroundColor(android.graphics.Color.TRANSPARENT);input.setPadding(0,dp(12),0,dp(12));input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);bar.addView(input,new LinearLayout.LayoutParams(0,dp(56),1));Icons go=icon("next",GREEN,()->startSearch(input.getText().toString(),false));go.setContentDescription("Search YouTube");bar.addView(go);add(body,bar,-2);
+        LinearLayout bar=row();bar.setBackground(border(SURFACE,16));bar.addView(icon("search",MUTED,null));EditText input=new EditText(this);input.setSingleLine(true);input.setTextColor(FG);input.setHintTextColor(MUTED);input.setTextSize(15);input.setHint("Songs, artists, or a YouTube Music link");input.setText(query);input.setBackgroundColor(android.graphics.Color.TRANSPARENT);input.setPadding(0,dp(12),0,dp(12));input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);bar.addView(input,new LinearLayout.LayoutParams(0,dp(56),1));Icons go=icon("next",GREEN,()->startSearch(input.getText().toString(),false));go.setContentDescription("Search YouTube Music");bar.addView(go);add(body,bar,-2);
         input.setOnEditorActionListener((v,id,event)->{if(id==EditorInfo.IME_ACTION_SEARCH){startSearch(input.getText().toString(),false);return true;}return false;});
         input.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){query=s.toString();}public void afterTextChanged(Editable e){}});
         space(body,12);HorizontalScrollView modes=new HorizontalScrollView(this);modes.setHorizontalScrollBarEnabled(false);LinearLayout choices=row();
         for(MusicCatalog.Mode mode:MusicCatalog.Mode.values()){
-            String name=switch(mode){case SONGS->"Songs";case ALBUMS->"Albums";case VIDEOS->"YouTube videos";};
+            String name=switch(mode){case SONGS->"Songs";case ALBUMS->"Albums";};
             TextView choice=button(name,mode==searchMode,()->{searchMode=mode;if(query.isBlank()){results.clear();albumResults.clear();nextPage=null;searchError="";searching=false;++searchVersion;render();}else startSearch(query,false);});
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(48));lp.setMarginEnd(dp(8));choices.addView(choice,lp);
         }modes.addView(choices);add(body,modes,-2);space(body,16);
@@ -344,13 +345,17 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
                     LinearLayout r=row();r.addView(icon("search",MUTED,null));r.addView(text(suggestion,15,FG,false),new LinearLayout.LayoutParams(0,-2,1));r.addView(icon("chevron",MUTED,null));r.setOnClickListener(v->startSearch(suggestion,false));add(body,r,62);
                 }
                 space(body,18);add(body,text("Songs and Albums use YouTube Music catalog search. Availability varies by region; album results may include singles and EPs.",12,MUTED,false),-2);
-            }else empty("No songs here yet","Run a search above. Try a song title, artist, or a YouTube video link.","music",null,null);
+            }else empty("No songs here yet","Run a search above. Try a song title, artist, or a YouTube Music link.","music",null,null);
         }
     }
     private void startSearch(String value,boolean more){
         String q=value.trim();if(q.isEmpty()){navigate("search");return;}
         String playlistLink=PlaylistLinks.canonical(q);
-        if(!more&&playlistLink!=null&&VideoIds.parse(q)==null){openRemotePlaylist(new PlaylistSource.Suggestion(playlistLink,"YouTube playlist","YouTube","",-1));return;}
+        if(!more&&(playlistLink!=null||(!VideoIds.valid(q)&&VideoIds.parse(q)!=null))&&!PlaylistLinks.isMusicLink(q)){
+            toast("Use a YouTube Music link or search by song title.");
+            return;
+        }
+        if(!more&&playlistLink!=null&&VideoIds.parse(q)==null){openRemotePlaylist(new PlaylistSource.Suggestion(playlistLink,"YouTube Music playlist","YouTube Music","",-1));return;}
         if(searching && more)return;
         tab="search";playlistId=null;query=q;if(!more)app.library.recordSearch(q);hideKeyboard();int version=++searchVersion;
         org.schabi.newpipe.extractor.Page page=more?nextPage:null;
@@ -445,14 +450,27 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private void displayArtwork(ImageView view,Bitmap bitmap){view.setImageBitmap(bitmap);if(view==nowArt&&nowPage!=null){int color=bitmap.getPixel(bitmap.getWidth()/2,bitmap.getHeight()/2);int tone=ThemePalette.mix(color,palette.background(),palette.light()?.82f:.66f);nowPage.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{tone,palette.hero(),BG}));}}
     private void play(List<Track> tracks,int index,boolean shuffle){
         if(player==null){toast("Audio player is connecting. Please try again.");return;}if(tracks.isEmpty())return;
-        List<Track> copy=new ArrayList<>(tracks);List<MediaItem> items=new ArrayList<>();for(Track t:copy){app.library.remember(t);items.add((adaptivePlayback)?PlaybackService.autoMixItem(t,app.library.offline(t.id()),adaptiveMood.name()):t.mediaItem(app.library.offline(t.id())));}
+        List<MediaItem> items=new ArrayList<>(tracks.size());
+        for(Track track:tracks){
+            items.add(adaptivePlayback?PlaybackService.autoMixItem(track,null,adaptiveMood.name()):track.mediaItem(null));
+        }
         player.setShuffleModeEnabled(shuffle);player.setMediaItems(items,index,0);player.prepare();player.play();updateMini();showNowPlaying();
     }
     private void togglePlay(){if(player==null)return;if(player.isPlaying())player.pause();else{if(player.getPlaybackState()==Player.STATE_IDLE)player.prepare();if(player.getPlaybackState()==Player.STATE_ENDED)player.seekToDefaultPosition();player.play();}}
     private void updateMini(){
-        if(mini==null)return;mini.removeAllViews();if(player==null||player.getCurrentMediaItem()==null)return;
-        Track t=Track.from(player.getCurrentMediaItem());LinearLayout r=row();r.setBackground(border(palette.selected(),14));r.setPadding(dp(8),dp(8),dp(4),dp(8));r.addView(artwork(t,44),new LinearLayout.LayoutParams(dp(44),dp(44)));
-        LinearLayout copy=column();copy.setPadding(dp(12),0,0,0);miniTitle=label(t.title(),13,FG,true);miniArtist=label(t.artist(),11,MUTED,false);copy.addView(miniTitle);space(copy,3);copy.addView(miniArtist);r.addView(copy,new LinearLayout.LayoutParams(0,-2,1));miniPlay=icon(player.isPlaying()?"pause":"play",GREEN,this::togglePlay);miniPlay.setContentDescription(player.isPlaying()?"Pause":"Play");r.addView(miniPlay);r.addView(icon("next",FG,()->{if(player.hasNextMediaItem())player.seekToNextMediaItem();else toast("You're at the end of the queue.");}));r.setContentDescription("Open now playing");r.setOnClickListener(v->showNowPlaying());mini.addView(r,new LinearLayout.LayoutParams(-1,dp(68)));
+        if(mini==null)return;
+        MediaItem current=player==null?null:player.getCurrentMediaItem();
+        if(current==null){mini.removeAllViews();miniTrack=null;return;}
+        Track t=Track.from(current);
+        if(t.equals(miniTrack)){
+            miniPlay.set(player.isPlaying()?"pause":"play",GREEN);
+            miniPlay.setContentDescription(player.isPlaying()?"Pause":"Play");
+            return;
+        }
+        miniTrack=t;
+        mini.removeAllViews();
+        LinearLayout r=row();r.setBackground(border(palette.selected(),14));r.setPadding(dp(8),dp(8),dp(4),dp(8));r.addView(artwork(t,44),new LinearLayout.LayoutParams(dp(44),dp(44)));
+        LinearLayout copy=column();copy.setPadding(dp(12),0,0,0);TextView miniTitle=label(t.title(),13,FG,true);TextView miniArtist=label(t.artist(),11,MUTED,false);copy.addView(miniTitle);space(copy,3);copy.addView(miniArtist);r.addView(copy,new LinearLayout.LayoutParams(0,-2,1));miniPlay=icon(player.isPlaying()?"pause":"play",GREEN,this::togglePlay);miniPlay.setContentDescription(player.isPlaying()?"Pause":"Play");r.addView(miniPlay);r.addView(icon("next",FG,()->{if(player.hasNextMediaItem())player.seekToNextMediaItem();else toast("You're at the end of the queue.");}));r.setContentDescription("Open now playing");r.setOnClickListener(v->showNowPlaying());mini.addView(r,new LinearLayout.LayoutParams(-1,dp(68)));
     }
     private void showNowPlaying(){
         if(player==null||player.getCurrentMediaItem()==null)return;if(nowDialog!=null&&nowDialog.isShowing())return;
@@ -474,9 +492,12 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         if(!t.id().equals(nowArtFrame.getTag())){nowArtFrame.setTag(t.id());nowArt.setImageDrawable(null);nowArt.setTag("");loadImage(nowArt,t.artworkUrl(),Math.min(1280,getResources().getDisplayMetrics().widthPixels));}
         nowArt.setContentDescription("Artwork for "+t.title());
         playIcon.set(player.isPlaying()?"pause":"play",INK);playIcon.setContentDescription(player.isPlaying()?"Pause":"Play");likeIcon.set(app.library.contains("liked",t.id())?"liked":"heart",GREEN);shuffleIcon.set("shuffle",player.getShuffleModeEnabled()?GREEN:MUTED);repeatIcon.set("repeat",player.getRepeatMode()==Player.REPEAT_MODE_OFF?MUTED:GREEN);
-        long duration=player.getDuration();if(!dragging){elapsed.setText(time(player.getCurrentPosition()));seek.setProgress(duration>0?(int)(player.getCurrentPosition()*1000/duration):0);}total.setText(duration>0?time(duration):"–:––");seek.setEnabled(duration>0);
+        updatePosition();
         String state=player.getPlayerError()!=null?"Can't play this track · Tap Play to retry":player.getPlaybackState()==Player.STATE_BUFFERING?"Finding the best audio stream…":app.library.offline(t.id())!=null?"Playing from your offline library":"Streaming from YouTube";
         if(player.getRepeatMode()==Player.REPEAT_MODE_ONE)state+=" · Repeat one";else if(player.getRepeatMode()==Player.REPEAT_MODE_ALL)state+=" · Repeat all";nowStatus.setText(state);
+    }
+    private void updatePosition(){
+        long duration=player.getDuration();if(!dragging){elapsed.setText(time(player.getCurrentPosition()));seek.setProgress(duration>0?(int)(player.getCurrentPosition()*1000/duration):0);}total.setText(duration>0?time(duration):"–:––");seek.setEnabled(duration>0);
     }
     private void showEqualizer(){if(equalizerPanel!=null)equalizerPanel.dismiss();equalizerPanel=new EqualizerPanel(this,app.equalizer);equalizerPanel.show();}
     private void showQueue(){
@@ -675,7 +696,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         });dialog.show();
     }
     private void showAbout(){
-        new AlertDialog.Builder(this).setTitle("MuseDock · "+getString(R.string.app_version)).setMessage(getString(R.string.developed_by)+"\n\nYour music, in your frequency.\n\nAndroid 10+ · No account required\n\nSearch and stream YouTube audio and discover public playlists with the open-source NewPipe Extractor. For you suggestions combine your current song, searches, artists and explicit style clues; other filters use the selected mood. Optional Google sign-in saves only your name and email locally; it does not grant YouTube history access. Takeout exports are processed locally. Offline audio and optional MP3 conversion stay on this device. Recommendations use local searches, meaningful listening, early skips and likes; derived song/artist searches go to YouTube Music to fetch suggestions. You can hide songs from suggestions through their menu. There are no in-app ads. YouTube availability and extraction can change; some videos may not play.\n\nPlaylists and downloads stay on this device. Uninstalling clears them. Audio files are kept in app-private storage. Songs and Albums search YouTube Music through NewPipe; playback uses YouTube media streams. Equalizer effects depend on device audio support. Search requests and playback connect directly to YouTube/Google; thumbnail requests connect to their image servers. No analytics or developer server.\n\nOnly download content you have permission to save. This app is not affiliated with YouTube or Spotify.\n\nOpen-source: GPL-3.0-or-later. NewPipe Extractor and nanojson: GPL-3.0-or-later and Apache-2.0 respectively; AndroidX Media3: Apache-2.0; OkHttp: Apache-2.0. Full notices are included with the source.").setNeutralButton("Account & history",(d,w)->navigate("account")).setPositiveButton("Got it",null).show();
+        new AlertDialog.Builder(this).setTitle("MuseDock · "+getString(R.string.app_version)).setMessage(getString(R.string.developed_by)+"\n\nYour music, in your frequency.\n\nAndroid 10+ · No account required\n\nSearch songs, albums and playlists on YouTube Music with the open-source NewPipe Extractor. For you suggestions combine your current song, searches, artists and explicit style clues; other filters use the selected mood. Optional Google sign-in saves only your name and email locally; it does not grant YouTube history access. Takeout exports are processed locally. Offline audio and optional MP3 conversion stay on this device. Recommendations use local searches, meaningful listening, early skips and likes; derived song/artist searches go to YouTube Music to fetch suggestions. You can hide songs from suggestions through their menu. There are no in-app ads. YouTube availability and extraction can change; some videos may not play.\n\nPlaylists and downloads stay on this device. Uninstalling clears them. Audio files are kept in app-private storage. Songs and Albums search YouTube Music through NewPipe; playback uses YouTube media streams. Equalizer effects depend on device audio support. Search requests and playback connect directly to YouTube/Google; thumbnail requests connect to their image servers. No analytics or developer server.\n\nOnly download content you have permission to save. This app is not affiliated with YouTube or Spotify.\n\nOpen-source: GPL-3.0-or-later. NewPipe Extractor and nanojson: GPL-3.0-or-later and Apache-2.0 respectively; AndroidX Media3: Apache-2.0; OkHttp: Apache-2.0. Full notices are included with the source.").setNeutralButton("Account & history",(d,w)->navigate("account")).setPositiveButton("Got it",null).show();
     }
     private void hideKeyboard(){View focus=getCurrentFocus();if(focus!=null)getSystemService(InputMethodManager.class).hideSoftInputFromWindow(focus.getWindowToken(),0);}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}

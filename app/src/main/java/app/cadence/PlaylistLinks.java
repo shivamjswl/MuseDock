@@ -7,6 +7,15 @@ import java.util.Set;
 
 public final class PlaylistLinks {
     private PlaylistLinks() {}
+    public static boolean isMusicLink(String value) {
+        try {
+            URI uri=URI.create(value.trim());
+            return ("https".equalsIgnoreCase(uri.getScheme())||"http".equalsIgnoreCase(uri.getScheme()))
+                &&"music.youtube.com".equalsIgnoreCase(uri.getHost());
+        }catch(RuntimeException ignored){
+            return false;
+        }
+    }
     /** Drop tracking parameters and reject destinations outside YouTube. */
     public static String canonical(String value) {
         try {

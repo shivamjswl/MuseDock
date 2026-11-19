@@ -6,11 +6,12 @@ import java.util.function.LongSupplier;
 /** Shared by in-app, headset and notification controls through the Media3 listener. */
 @androidx.annotation.OptIn(markerClass=androidx.media3.common.util.UnstableApi.class)
 final class ListeningFeedback implements Player.Listener {
-    private final Player player;private final Library library;private final Runnable changed,skipped;
+    private final Player player;private final java.util.function.BiConsumer<Track,Boolean> record;private final Runnable changed,skipped;
     private final LongSupplier clock;private final ListeningTracker tracker=new ListeningTracker();
     private Track track;private boolean pendingSkip;
-    ListeningFeedback(Player player,Library library,LongSupplier clock,Runnable changed,Runnable skipped){this.player=player;this.library=library;this.clock=clock;this.changed=changed;this.skipped=skipped;}
-    void tick(){if(track!=null&&tracker.reward(track.duration()*1000,clock.getAsLong())){library.listening(track,false);changed.run();}}
+    ListeningFeedback(Player player,Library library,LongSupplier clock,Runnable changed,Runnable skipped){this(player,library::listening,clock,changed,skipped);}
+    ListeningFeedback(Player player,java.util.function.BiConsumer<Track,Boolean> record,LongSupplier clock,Runnable changed,Runnable skipped){this.player=player;this.record=record;this.clock=clock;this.changed=changed;this.skipped=skipped;}
+    void tick(){if(track!=null&&tracker.reward(track.duration()*1000,clock.getAsLong())){record.accept(track,false);changed.run();}}
     @Override public void onIsPlayingChanged(boolean playing){
         if(playing&&track==null&&player.getCurrentMediaItem()!=null){track=Track.from(player.getCurrentMediaItem());changed.run();}
         tracker.playing(playing,clock.getAsLong());tick();
@@ -18,7 +19,7 @@ final class ListeningFeedback implements Player.Listener {
     @Override public void onPositionDiscontinuity(Player.PositionInfo old,Player.PositionInfo next,int reason){
         boolean different=old.mediaItem!=null&&next.mediaItem!=null&&(old.mediaItemIndex!=next.mediaItemIndex||!old.mediaItem.mediaId.equals(next.mediaItem.mediaId));
         if(different&&reason==Player.DISCONTINUITY_REASON_SEEK&&player.getPlayerError()==null&&track!=null&&track.id().equals(old.mediaItem.mediaId)&&tracker.earlySkip(track.duration()*1000,clock.getAsLong())){
-            library.listening(track,true);pendingSkip=true;changed.run();
+            record.accept(track,true);pendingSkip=true;changed.run();
         }
     }
     @Override public void onMediaItemTransition(MediaItem item,int reason){

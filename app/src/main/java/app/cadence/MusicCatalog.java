@@ -6,7 +6,7 @@ import org.schabi.newpipe.extractor.Page;
 /** Music-specific catalog searches; albums resolve to public track playlists. */
 public interface MusicCatalog {
     enum Mode {
-        SONGS("music_songs"), ALBUMS("music_albums"), VIDEOS("videos");
+        SONGS("music_songs"), ALBUMS("music_albums");
         public final String filter;
         Mode(String filter) { this.filter = filter; }
     }

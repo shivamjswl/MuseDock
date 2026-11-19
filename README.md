@@ -9,12 +9,12 @@ MuseDock is a native Android music player developed by Shivam Jaiswal. Search so
 ## New in 0.9.0
 
 - **Sharper covers:** select the largest provider thumbnail, request up to 1280-pixel artwork for the player, and try smaller covers when a large image is unavailable. Google music covers use supported size suffixes. Separate image URLs keep a small list thumbnail from being reused on the full player. Concurrent requests share downloads; images remain privately cached.
-- **Listening-aware picks:** the current song, singers, recent searches, likes, meaningful listening, explicit genre/style terms and provider-related songs guide discovery. The larger cached candidate pool can be re-ranked after feedback. Focus, chill and energy intents influence ranking as well as retrieval.
+- **Listening-aware picks:** the current song, singers, recent searches, likes, meaningful listening, and explicit genre/style terms guide discovery. The larger cached candidate pool can be re-ranked after feedback. Focus, chill and energy intents influence ranking as well as retrieval.
 - **Early skips teach the mix:** skipping to a different queue item before 30 seconds and before a quarter of its duration gives that song a seven-day recommendation cooldown. Listening again for 30 seconds (or half of a short song, at least five seconds) clears the cooldown. Pauses, buffering, unplayed tracks, same-track seeks and playback errors do not manufacture listening or skip signals. Previous history is retained; new behavior signals start with this update.
 - **Adaptive generated queues:** early skips refresh the upcoming songs in generated mixes when shuffle is off. Already played/current songs are preserved, and an in-flight refresh is discarded if you change the queue. Saved playlist contents, ordinary queues and On repeat are not rewritten. A failed or empty provider response keeps the remaining queue.
 - **More colorful listening:** a tonal home header, translucent Liquid surfaces, crisp cover presentation, artwork-tinted player backgrounds and a new contained transport-control layout. Select Liquid under **⋯ → Appearance**; Material, Light and Dark remain available.
 
-Personalization is an original on-device ranking layer over public YouTube Music searches and YouTube related items. Style terms are textual clues, not verified audio analysis or a complete genre database. It is not Spotify's private recommendation system. Provider relevance and maximum artwork resolution vary; a missing high-resolution original cannot be made truly sharper by upscaling.
+Personalization is an original on-device ranking layer over public YouTube Music song searches. Style terms are textual clues, not verified audio analysis or a complete genre database. It is not Spotify's private recommendation system. Provider relevance and maximum artwork resolution vary; a missing high-resolution original cannot be made truly sharper by upscaling.
 
 Playlist descriptions, pinning, duplication, merging, sorting, bulk removal, suggested additions, downloads and the expanded equalizer from 0.8 remain available.
 
@@ -26,8 +26,8 @@ This is a non-debuggable APK signed with the existing development key, not a Pla
 
 ## Music and playlists
 
-- Search YouTube songs/artists or paste public video and playlist links.
-- Discover public playlists through For you, Fresh, Chill, and Workout filters.
+- Search YouTube Music songs and albums, or paste a YouTube Music song or playlist link.
+- Discover public YouTube Music playlists through For you, Fresh, Chill, and Workout filters.
 - Play or shuffle loaded playlist songs, load more pages, and save loaded song links into a local playlist.
 - Create, describe, pin, duplicate, merge, sort, bulk-edit and delete playlists; like songs and revisit recent listening.
 - Background audio, notification controls, audio focus, and headphone-disconnection handling use AndroidX Media3.
@@ -86,6 +86,6 @@ See [VALIDATION.md](VALIDATION.md) for executed checks, remaining phone checks, 
 
 ## Privacy and licenses
 
-Music searches use YouTube Music or the selected YouTube video filter; playback and artwork requests go to YouTube/Google media and image hosts. Music-language preferences guide those search queries. Appearance, language, search/taste signals, hidden-song choices and custom sound presets are stored locally. Artist/search-derived queries are sent to YouTube Music, and current video IDs are used to request public related items; no complete listening database or developer-hosted profile is uploaded. No lyrics provider is contacted. Selected history exports and audio conversion stay on the device. Exporting writes to the destination/provider you choose in Android's file picker. Optional Google sign-in uses Google's native identity flow and stores only display name/email locally; no ID token is persisted or uploaded. No analytics or developer-hosted server is used.
+Catalog searches and recommendations use YouTube Music. NewPipe uses shared YouTube endpoints to load playlist tracks and resolve audio, and playback and artwork requests use Google media and image hosts. Music-language preferences guide those search queries. Appearance, language, search/taste signals, hidden-song choices and custom sound presets are stored locally. Artist/search-derived queries are sent to YouTube Music; no complete listening database or developer-hosted profile is uploaded. No lyrics provider is contacted. Selected history exports and audio conversion stay on the device. Exporting writes to the destination/provider you choose in Android's file picker. Optional Google sign-in uses Google's native identity flow and stores only display name/email locally; no ID token is persisted or uploaded. No analytics or developer-hosted server is used.
 
 Application code: GPL-3.0-or-later. Third-party material retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), `licenses/`, and included source headers. The optional Google-enabled build is subject to Google's SDK terms and must be reviewed for license compatibility before redistribution. MuseDock is not affiliated with YouTube, Spotify, or Google.

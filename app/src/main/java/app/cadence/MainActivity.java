@@ -76,14 +76,17 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     private static final int PICK_HISTORY=81,EXPORT_AUDIO=82;
     private TextView nowTitle,nowArtist,nowStatus,elapsed,total;
     private Track miniTrack;
+    private String nowStatusTrack;
+    private int nowStatusVersion;
+    private boolean nowLiked,nowOffline;
     private ImageView nowArt;
     private FrameLayout nowArtFrame;
     private SeekBar seek;
     private Icons playIcon,likeIcon,shuffleIcon,repeatIcon,miniPlay;
     private boolean dragging=false,adaptivePlayback=false;private Recommendations.Mood adaptiveMood=Recommendations.Mood.FOR_YOU;
     private void playMix(List<Track> tracks,int index,boolean shuffle){adaptivePlayback=true;adaptiveMood=tab.equals("mix")?openedMood:Recommendations.Mood.FOR_YOU;try{play(tracks,index,shuffle);}finally{adaptivePlayback=false;}}
-    private final Runnable tasteRefresh=()->{if(closing||(!tab.equals("home")&&!tab.equals("mix")))return;refreshDiscovery(false);if(tab.equals("home"))loadSuggestions(recommendationQuery());};
-    private final BroadcastReceiver downloadsChanged=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if("app.musedock.TASTE_CHANGED".equals(i.getAction())){handler.removeCallbacks(tasteRefresh);handler.postDelayed(tasteRefresh,750);}else if(tab.equals("offline"))render();}};
+    private final Runnable tasteRefresh=()->{if(closing||(!tab.equals("home")&&!tab.equals("mix"))||(nowDialog!=null&&nowDialog.isShowing()))return;refreshDiscovery(false);if(tab.equals("home"))loadSuggestions(recommendationQuery());};
+    private final BroadcastReceiver downloadsChanged=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){if("app.musedock.TASTE_CHANGED".equals(i.getAction())){handler.removeCallbacks(tasteRefresh);handler.postDelayed(tasteRefresh,750);}else{nowStatusTrack=null;updateNow();if(tab.equals("offline"))render();}}};
     private final Player.Listener listener=new Player.Listener(){
         @Override public void onEvents(Player p,Player.Events events){updateMini();updateNow();}
         @Override public void onPlayerError(PlaybackException error){toast("Playback failed. Check your connection, then tap Play to retry.");}
@@ -427,21 +430,21 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     }
     private void loadImage(ImageView image,String url,int pixels){
         if(closing||images.isShutdown())return;
-        List<String> candidates=Artwork.candidates(url,pixels);if(candidates.isEmpty())return;String key=candidates.get(0);image.setTag(key);
-        Bitmap cached=app.artworkCache.get(key);if(cached!=null){displayArtwork(image,cached);return;}
+        List<String> candidates=Artwork.candidates(url,pixels);if(candidates.isEmpty())return;int target=pixels<=256?320:pixels<=640?640:1280;String key=candidates.get(0)+"#"+target;image.setTag(key);
+        Bitmap cached=app.artworkCache.get(key);if(cached==null){Bitmap original=app.artworkCache.get(candidates.get(0));if(original!=null&&Math.max(original.getWidth(),original.getHeight())<=target*2)cached=original;}if(cached!=null){displayArtwork(image,cached);return;}
         CompletableFuture<Bitmap> task=artworkRequests.get(key);
         if(task==null){task=new CompletableFuture<>();artworkRequests.put(key,task);final CompletableFuture<Bitmap> work=task;
             images.execute(()->{Bitmap found=null;try{for(String candidate:candidates){
                 if(Thread.currentThread().isInterrupted())break;
-                found=app.artworkCache.get(candidate);if(found!=null)break;
+                String imageKey=candidate+"#"+target;found=app.artworkCache.get(imageKey);if(found!=null)break;
                 if(System.currentTimeMillis()-artworkFailures.getOrDefault(candidate,0L)<30000)continue;
                 try(okhttp3.Response response=app.artworkClient.newCall(new okhttp3.Request.Builder().url(candidate).build()).execute()){
                     if(!response.isSuccessful()||response.body()==null)throw new java.io.IOException("Artwork unavailable");
                     java.io.InputStream in=response.body().byteStream();java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] chunk=new byte[8192];int n,count=0;while((n=in.read(chunk))!=-1){count+=n;if(count>6*1024*1024)throw new java.io.IOException("Artwork too large");out.write(chunk,0,n);}
                     byte[] data=out.toByteArray();BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(data,0,data.length,options);
                     if(options.outWidth<1||options.outHeight<1||(long)options.outWidth*options.outHeight>32000000L||(candidate.contains("maxresdefault")||candidate.contains("sddefault"))&&options.outWidth<320)throw new java.io.IOException("Invalid artwork");
-                    options.inSampleSize=Artwork.sampleSize(options.outWidth,options.outHeight,1280);options.inJustDecodeBounds=false;options.inPreferredConfig=Bitmap.Config.ARGB_8888;
-                    found=BitmapFactory.decodeByteArray(data,0,data.length,options);if(found==null)throw new java.io.IOException("Invalid artwork");app.artworkCache.put(candidate,found);break;
+                    options.inSampleSize=Artwork.sampleSize(options.outWidth,options.outHeight,target);options.inJustDecodeBounds=false;options.inPreferredConfig=Bitmap.Config.ARGB_8888;
+                    found=BitmapFactory.decodeByteArray(data,0,data.length,options);if(found==null)throw new java.io.IOException("Invalid artwork");app.artworkCache.put(imageKey,found);break;
                 }catch(Exception error){if(artworkFailures.size()>200)artworkFailures.clear();artworkFailures.put(candidate,System.currentTimeMillis());}
             }}finally{work.complete(found);artworkRequests.remove(key,work);}});
         }
@@ -449,7 +452,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     }
     private void displayArtwork(ImageView view,Bitmap bitmap){view.setImageBitmap(bitmap);if(view==nowArt&&nowPage!=null){int color=bitmap.getPixel(bitmap.getWidth()/2,bitmap.getHeight()/2);int tone=ThemePalette.mix(color,palette.background(),palette.light()?.82f:.66f);nowPage.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{tone,palette.hero(),BG}));}}
     private void play(List<Track> tracks,int index,boolean shuffle){
-        if(player==null){toast("Audio player is connecting. Please try again.");return;}if(tracks.isEmpty())return;
+        if(player==null){toast("Audio player is connecting. Please try again.");return;}if(index<0||index>=tracks.size())return;
         List<MediaItem> items=new ArrayList<>(tracks.size());
         for(Track track:tracks){
             items.add(adaptivePlayback?PlaybackService.autoMixItem(track,null,adaptiveMood.name()):track.mediaItem(null));
@@ -462,7 +465,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
         MediaItem current=player==null?null:player.getCurrentMediaItem();
         if(current==null){mini.removeAllViews();miniTrack=null;return;}
         Track t=Track.from(current);
-        if(t.equals(miniTrack)){
+        if(t.equals(miniTrack)&&mini.getChildCount()>0){
             miniPlay.set(player.isPlaying()?"pause":"play",GREEN);
             miniPlay.setContentDescription(player.isPlaying()?"Pause":"Play");
             return;
@@ -474,26 +477,43 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
     }
     private void showNowPlaying(){
         if(player==null||player.getCurrentMediaItem()==null)return;if(nowDialog!=null&&nowDialog.isShowing())return;
+        nowStatusTrack=null;
         nowDialog=new Dialog(this);LinearLayout page=column();nowPage=page;page.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{palette.hero(),SURFACE,BG}));page.setPadding(dp(26),dp(18),dp(26),dp(24));
         ScrollView container=new ScrollView(this);container.setFillViewport(true);container.addView(page);nowDialog.setContentView(container);nowDialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);WindowCompat.setDecorFitsSystemWindows(nowDialog.getWindow(),false);nowDialog.getWindow().setLayout(-1,-1);ViewCompat.setOnApplyWindowInsetsListener(container,(v,i)->{androidx.core.graphics.Insets s=i.getInsets(WindowInsetsCompat.Type.systemBars());v.setPadding(0,s.top,0,s.bottom);return i;});
         LinearLayout top=row();top.addView(icon("down",FG,()->nowDialog.dismiss()));TextView title=label("NOW PLAYING · MUSEDOCK",10,FG,true);title.setLetterSpacing(.12f);title.setGravity(Gravity.CENTER);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));top.addView(icon("queue",FG,this::showQueue));page.addView(top);space(page,16);TextView capsule=text("YOUR MOMENT. YOUR MUSIC.",10,GREEN,true);capsule.setGravity(Gravity.CENTER);capsule.setLetterSpacing(.16f);page.addView(capsule);space(page,24);
         int artSize=Math.min(360,(int)(getResources().getDisplayMetrics().widthPixels/getResources().getDisplayMetrics().density)-64);nowArtFrame=new FrameLayout(this);nowArtFrame.setBackground(border(RAISED,28));nowArtFrame.setElevation(dp(12));nowArtFrame.setClipToOutline(true);nowArtFrame.addView(new RecordArt(this),new FrameLayout.LayoutParams(-1,-1));nowArt=new ImageView(this);nowArt.setScaleType(ImageView.ScaleType.CENTER_CROP);nowArtFrame.addView(nowArt,new FrameLayout.LayoutParams(-1,-1));LinearLayout.LayoutParams artParams=new LinearLayout.LayoutParams(dp(artSize),dp(artSize));artParams.gravity=Gravity.CENTER_HORIZONTAL;page.addView(nowArtFrame,artParams);space(page,26);
-        LinearLayout name=row();LinearLayout names=column();nowTitle=label("",25,FG,true);nowArtist=label("",15,MUTED,false);names.addView(nowTitle);space(names,6);names.addView(nowArtist);name.addView(names,new LinearLayout.LayoutParams(0,-2,1));likeIcon=icon("heart",GREEN,()->{Track t=Track.from(player.getCurrentMediaItem());boolean liked=app.library.contains("liked",t.id());if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);updateNow();refreshDiscovery(false);loadSuggestions(recommendationQuery());});likeIcon.setContentDescription("Toggle liked song");name.addView(likeIcon);page.addView(name);space(page,18);
+        LinearLayout name=row();LinearLayout names=column();nowTitle=label("",25,FG,true);nowArtist=label("",15,MUTED,false);names.addView(nowTitle);space(names,6);names.addView(nowArtist);name.addView(names,new LinearLayout.LayoutParams(0,-2,1));likeIcon=icon("heart",GREEN,()->{MediaItem item=player.getCurrentMediaItem();if(item==null)return;Track t=Track.from(item);boolean liked=app.library.contains("liked",t.id());if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);nowStatusTrack=null;updateNow();});likeIcon.setContentDescription("Toggle liked song");name.addView(likeIcon);page.addView(name);space(page,18);
         seek=new SeekBar(this);seek.setMax(1000);seek.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));seek.setThumbTintList(android.content.res.ColorStateList.valueOf(GREEN));seek.setContentDescription("Playback position");page.addView(seek,new LinearLayout.LayoutParams(-1,dp(44)));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int v,boolean user){if(user&&player.getDuration()>0)elapsed.setText(time(player.getDuration()*v/1000));}public void onStartTrackingTouch(SeekBar s){dragging=true;}public void onStopTrackingTouch(SeekBar s){if(player.getDuration()>0)player.seekTo(player.getDuration()*s.getProgress()/1000);dragging=false;}});
         LinearLayout times=row();elapsed=text("0:00",12,MUTED,false);total=text("0:00",12,MUTED,false);times.addView(elapsed,new LinearLayout.LayoutParams(0,-2,1));times.addView(total);page.addView(times);space(page,16);
         LinearLayout controls=row();controls.setGravity(Gravity.CENTER);controls.setPadding(dp(4),dp(12),dp(4),dp(12));controls.setBackground(border(palette.selected(),32));shuffleIcon=icon("shuffle",MUTED,()->player.setShuffleModeEnabled(!player.getShuffleModeEnabled()));controls.addView(shuffleIcon,new LinearLayout.LayoutParams(0,dp(56),1));Icons prev=icon("previous",FG,()->{if(player.getCurrentPosition()>3000)player.seekTo(0);else if(player.hasPreviousMediaItem())player.seekToPreviousMediaItem();else player.seekTo(0);});controls.addView(prev,new LinearLayout.LayoutParams(0,dp(60),1));playIcon=icon("play",INK,this::togglePlay);playIcon.setBackground(bg(GREEN,50));playIcon.setElevation(dp(5));controls.addView(playIcon,new LinearLayout.LayoutParams(dp(76),dp(76)));Icons next=icon("next",FG,()->{if(player.hasNextMediaItem())player.seekToNextMediaItem();else toast("You're at the end of the queue.");});controls.addView(next,new LinearLayout.LayoutParams(0,dp(60),1));repeatIcon=icon("repeat",MUTED,()->player.setRepeatMode((player.getRepeatMode()+1)%3));repeatIcon.setContentDescription("Change repeat mode");controls.addView(repeatIcon,new LinearLayout.LayoutParams(0,dp(56),1));page.addView(controls);space(page,18);
-        nowStatus=text("",12,MUTED,false);nowStatus.setGravity(Gravity.CENTER);page.addView(nowStatus);space(page,14);LinearLayout actions=row();actions.setGravity(Gravity.CENTER);Icons save=icon("download",FG,()->download(Track.from(player.getCurrentMediaItem())));save.setContentDescription("Save current song offline");actions.addView(save);TextView source=text("YouTube audio",12,MUTED,false);source.setPadding(dp(12),0,dp(12),0);actions.addView(source);Icons menu=icon("more",FG,()->songMenu(Track.from(player.getCurrentMediaItem()),false));menu.setContentDescription("Playback options");actions.addView(menu);page.addView(actions);space(page,12);TextView feedback=text("Your mix grows with what you love. Early skips help tune the next picks.",11,MUTED,false);feedback.setGravity(Gravity.CENTER);page.addView(feedback);
-        nowDialog.setOnDismissListener(d->{dragging=false;if(!closing&&(tab.equals("library")||tab.equals("home")))render();});nowArt.setTag(null);nowDialog.show();nowDialog.getWindow().setLayout(-1,-1);WindowCompat.getInsetsController(nowDialog.getWindow(),container).setAppearanceLightStatusBars(palette.light());WindowCompat.getInsetsController(nowDialog.getWindow(),container).setAppearanceLightNavigationBars(palette.light());updateNow();
+        nowStatus=text("",12,MUTED,false);nowStatus.setGravity(Gravity.CENTER);page.addView(nowStatus);space(page,14);LinearLayout actions=row();actions.setGravity(Gravity.CENTER);Icons save=icon("download",FG,()->{MediaItem item=player.getCurrentMediaItem();if(item!=null)download(Track.from(item));});save.setContentDescription("Save current song offline");actions.addView(save);TextView source=text("YouTube audio",12,MUTED,false);source.setPadding(dp(12),0,dp(12),0);actions.addView(source);Icons menu=icon("more",FG,()->{MediaItem item=player.getCurrentMediaItem();if(item!=null)songMenu(Track.from(item),false);});menu.setContentDescription("Playback options");actions.addView(menu);page.addView(actions);space(page,12);TextView feedback=text("Your mix grows with what you love. Early skips help tune the next picks.",11,MUTED,false);feedback.setGravity(Gravity.CENTER);page.addView(feedback);
+        nowDialog.setOnDismissListener(d->{dragging=false;if(!closing&&(tab.equals("library")||tab.equals("home")||tab.equals("mix"))){render();handler.removeCallbacks(tasteRefresh);handler.post(tasteRefresh);}});nowArt.setTag(null);nowDialog.show();nowDialog.getWindow().setLayout(-1,-1);WindowCompat.getInsetsController(nowDialog.getWindow(),container).setAppearanceLightStatusBars(palette.light());WindowCompat.getInsetsController(nowDialog.getWindow(),container).setAppearanceLightNavigationBars(palette.light());updateNow();
     }
     private void updateNow(){
-        if(nowDialog==null||!nowDialog.isShowing()||player==null)return;
+        if(closing||nowDialog==null||!nowDialog.isShowing()||player==null)return;
         if(player.getCurrentMediaItem()==null){nowDialog.dismiss();return;}
         Track t=Track.from(player.getCurrentMediaItem());nowTitle.setText(t.title());nowArtist.setText(t.artist());
+        if(!t.id().equals(nowStatusTrack)){
+            nowStatusTrack=t.id();nowLiked=false;nowOffline=false;
+            int version=++nowStatusVersion;
+            files.execute(()->{
+                try{
+                    boolean liked=app.library.contains("liked",t.id());
+                    boolean offline=app.library.offline(t.id())!=null;
+                    runOnUiThread(()->{
+                        if(closing||version!=nowStatusVersion||!t.id().equals(nowStatusTrack))return;
+                        nowLiked=liked;nowOffline=offline;updateNow();
+                    });
+                }catch(android.database.SQLException error){
+                    android.util.Log.w("MuseDock","Could not read playback status",error);
+                }
+            });
+        }
         if(!t.id().equals(nowArtFrame.getTag())){nowArtFrame.setTag(t.id());nowArt.setImageDrawable(null);nowArt.setTag("");loadImage(nowArt,t.artworkUrl(),Math.min(1280,getResources().getDisplayMetrics().widthPixels));}
         nowArt.setContentDescription("Artwork for "+t.title());
-        playIcon.set(player.isPlaying()?"pause":"play",INK);playIcon.setContentDescription(player.isPlaying()?"Pause":"Play");likeIcon.set(app.library.contains("liked",t.id())?"liked":"heart",GREEN);shuffleIcon.set("shuffle",player.getShuffleModeEnabled()?GREEN:MUTED);repeatIcon.set("repeat",player.getRepeatMode()==Player.REPEAT_MODE_OFF?MUTED:GREEN);
+        playIcon.set(player.isPlaying()?"pause":"play",INK);playIcon.setContentDescription(player.isPlaying()?"Pause":"Play");likeIcon.set(nowLiked?"liked":"heart",GREEN);shuffleIcon.set("shuffle",player.getShuffleModeEnabled()?GREEN:MUTED);repeatIcon.set("repeat",player.getRepeatMode()==Player.REPEAT_MODE_OFF?MUTED:GREEN);
         updatePosition();
-        String state=player.getPlayerError()!=null?"Can't play this track · Tap Play to retry":player.getPlaybackState()==Player.STATE_BUFFERING?"Finding the best audio stream…":app.library.offline(t.id())!=null?"Playing from your offline library":"Streaming from YouTube";
+        String state=player.getPlayerError()!=null?"Can't play this track · Tap Play to retry":player.getPlaybackState()==Player.STATE_BUFFERING?"Finding the best audio stream…":nowOffline?"Playing from your offline library":"Streaming from YouTube";
         if(player.getRepeatMode()==Player.REPEAT_MODE_ONE)state+=" · Repeat one";else if(player.getRepeatMode()==Player.REPEAT_MODE_ALL)state+=" · Repeat all";nowStatus.setText(state);
     }
     private void updatePosition(){
@@ -516,7 +536,7 @@ public final class MainActivity extends androidx.activity.ComponentActivity {
             if(options.get(action).equals("Export offline audio")){exportAudio(t);return;}
             if(options.get(action).equals("Convert offline copy to MP3")){startDownload(t,true);return;}
             switch(action){
-                case 0->{if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);toast(liked?"Removed from liked songs":"Added to liked songs");updateNow();if(tab.equals("library"))render();if(tab.equals("home")){refreshDiscovery(false);loadSuggestions(recommendationQuery());}}
+                case 0->{if(liked)app.library.remove("liked",t.id());else app.library.add("liked",t);toast(liked?"Removed from liked songs":"Added to liked songs");nowStatusTrack=null;updateNow();if(tab.equals("library"))render();if(tab.equals("home")){refreshDiscovery(false);loadSuggestions(recommendationQuery());}}
                 case 1->choosePlaylist(t);
                 case 2->{if(offline)new AlertDialog.Builder(this).setTitle("Remove offline copy?").setMessage("This frees device storage. The song stays in your playlists.").setPositiveButton("Remove",(dd,w)->{if(app.library.removeDownload(t.id())){toast("Offline copy removed");render();}else toast("Could not remove the file. Please try again.");}).setNegativeButton("Keep",null).show();else download(t);}
                 case 3->{if(player!=null){app.library.remember(t);player.addMediaItem(t.mediaItem(app.library.offline(t.id())));toast("Added to queue");}}

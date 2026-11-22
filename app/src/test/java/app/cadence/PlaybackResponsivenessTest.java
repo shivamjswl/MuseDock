@@ -1,6 +1,9 @@
 package app.cadence;
 import android.app.*;
 import android.content.ComponentName;
+import android.os.Handler;
+import android.os.Looper;
+import androidx.media3.common.ForwardingPlayer;
 import android.view.*;
 import android.widget.*;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -24,6 +27,39 @@ public class PlaybackResponsivenessTest {
     @Test public void progressTickerDoesNotWaitForTheLibraryDatabase()throws Exception{try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){MainActivity a=controller.get();player.setMediaItem(song.mediaItem(null));a.attachPlayer(player);call(a,"showNowPlaying");underDatabaseLock(()->call(a,"updatePosition"));}}
     @Test public void pressingPlayDoesNotWriteOrReadEveryQueueItemOnUiThread()throws Exception{try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){MainActivity a=controller.get();a.attachPlayer(player);List<Track> queue=new ArrayList<>();for(int i=0;i<100;i++)queue.add(new Track(String.format(Locale.ROOT,"perf%07d",i),"Test "+i,"Artist","",180));underDatabaseLock(()->{var m=MainActivity.class.getDeclaredMethod("play",List.class,int.class,boolean.class);m.setAccessible(true);m.invoke(a,queue,0,false);});assertEquals(100,player.getMediaItemCount());}}
     @Test public void playerOpenDefersDiscoveryNetworkRequests()throws Exception{var requests=new java.util.concurrent.atomic.AtomicInteger();app.catalog=(q,p,m)->{requests.incrementAndGet();return new MusicCatalog.Result(List.of(),List.of(),null,q);};try(var controller=Robolectric.buildActivity(MainActivity.class).setup()){MainActivity a=controller.get();player.setMediaItem(song.mediaItem(null));a.attachPlayer(player);call(a,"showNowPlaying");int before=requests.get();((Runnable)field(a,"tasteRefresh")).run();assertEquals(before,requests.get());}}
+    @Test public void progressTickerRunsOnlyWhileNowPlayingIsVisibleAndPlaying() throws Exception {
+        AtomicBoolean playing = new AtomicBoolean(true);
+        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            MainActivity activity = controller.get();
+            player.setMediaItem(song.mediaItem(null));
+            activity.attachPlayer(new ForwardingPlayer(player) {
+                @Override public boolean isPlaying() { return playing.get(); }
+            });
+            Handler handler = (Handler) field(activity, "handler");
+            Runnable ticker = (Runnable) field(activity, "ticker");
+
+            assertFalse(handler.hasCallbacks(ticker));
+            call(activity, "showNowPlaying");
+            assertTrue(handler.hasCallbacks(ticker));
+
+            playing.set(false);
+            call(activity, "updateNow");
+            assertFalse(handler.hasCallbacks(ticker));
+
+            playing.set(true);
+            call(activity, "updateNow");
+            assertTrue(handler.hasCallbacks(ticker));
+            ((Dialog) field(activity, "nowDialog")).dismiss();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(handler.hasCallbacks(ticker));
+
+            call(activity, "showNowPlaying");
+            assertTrue(handler.hasCallbacks(ticker));
+            controller.pause().stop();
+            assertFalse(handler.hasCallbacks(ticker));
+        }
+    }
+
     private interface Checked{void run()throws Exception;}
     private void underDatabaseLock(Checked operation)throws Exception{CountDownLatch acquired=new CountDownLatch(1),release=new CountDownLatch(1);AtomicBoolean held=new AtomicBoolean();Thread holder=new Thread(()->{synchronized(app.library){held.set(true);acquired.countDown();try{release.await(3,TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}finally{held.set(false);}}});holder.start();try{assertTrue(acquired.await(2,TimeUnit.SECONDS));operation.run();assertTrue("UI operation waited for the database lock",held.get());}finally{release.countDown();holder.join(4000);}}
 }

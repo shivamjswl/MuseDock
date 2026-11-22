@@ -1,3 +1,5 @@
+> **0.9.1 source update is pending release.** The original signing key is missing from the restored build environment, and the full UI suite is blocked by the test dependency mirror. No compatible 0.9.1 installer is published yet. Do not uninstall the existing app or install a differently signed build to work around this. The instructions and download below refer to the last published **0.9.0** build.
+
 # Install MuseDock 0.9.0
 
 Use the complete, standalone APK from the **downloads** branch:

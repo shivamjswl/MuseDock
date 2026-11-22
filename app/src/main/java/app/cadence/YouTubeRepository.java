@@ -14,14 +14,11 @@ import org.schabi.newpipe.extractor.playlist.*;
 public final class YouTubeRepository implements PlaylistSource, MusicCatalog {
     public static final String USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
     public final OkHttpClient client=new OkHttpClient.Builder().connectTimeout(20,TimeUnit.SECONDS).readTimeout(40,TimeUnit.SECONDS).callTimeout(70,TimeUnit.SECONDS).build();
-    private final Map<String,Cached> cache=new LinkedHashMap<>(16,0.75f,true){
-        @Override protected boolean removeEldestEntry(Map.Entry<String,Cached> entry){return size()>128;}
-    };
-    private record Cached(AudioSource audio,long expires){}
+    private final AudioSourceCache audioCache=new AudioSourceCache();
     public YouTubeRepository(){
         NewPipe.init(new Downloader(){
             @Override public org.schabi.newpipe.extractor.downloader.Response execute(org.schabi.newpipe.extractor.downloader.Request request) throws IOException,ReCaptchaException {
-                okhttp3.Request.Builder b=new okhttp3.Request.Builder().url(request.url()).header("User-Agent",USER_AGENT);
+                okhttp3.Request.Builder b=new okhttp3.Request.Builder().tag(String.class,Thread.currentThread().getName()).url(request.url()).header("User-Agent",USER_AGENT);
                 request.headers().forEach((k,values)->{b.removeHeader(k);for(String value:values)b.addHeader(k,value);});
                 byte[] data=request.dataToSend();RequestBody body=data==null?null:RequestBody.create(data,null);
                 if(body==null&&(request.httpMethod().equals("POST")||request.httpMethod().equals("PUT")))body=RequestBody.create(new byte[0],null);
@@ -33,9 +30,14 @@ public final class YouTubeRepository implements PlaylistSource, MusicCatalog {
             }
         });
     }
+    public void cancelRequestsFor(String worker){
+        for(Call call:client.dispatcher().runningCalls())if(worker.equals(call.request().tag(String.class)))call.cancel();
+        for(Call call:client.dispatcher().queuedCalls())if(worker.equals(call.request().tag(String.class)))call.cancel();
+    }
     @Override public MusicCatalog.Result search(String query,Page next,MusicCatalog.Mode mode) throws Exception {
-        String id=PlaylistLinks.isMusicLink(query)?VideoIds.parse(query):null;
-        if(id!=null){StreamInfo i=StreamInfo.getInfo(ServiceList.YouTube,VideoIds.url(id));return new MusicCatalog.Result(List.of(from(i)),List.of(),null,query);}
+        String id=VideoIds.parse(query);
+        if(id!=null&&PlaylistLinks.isMusicLink(query)){StreamInfo i=StreamInfo.getInfo(ServiceList.YouTube,query);return new MusicCatalog.Result(List.of(from(i)),List.of(),null,query);}
+        if(id!=null)throw new IllegalArgumentException("Search by song or artist to find the track in YouTube Music.");
         var q=ServiceList.YouTube.getSearchQHFactory().fromQuery(query,List.of(mode.filter),"");
         List<InfoItem> items;Page more;
         if(next==null){SearchInfo info=SearchInfo.getInfo(ServiceList.YouTube,q);items=info.getRelatedItems();more=info.getNextPage();}
@@ -73,32 +75,21 @@ public final class YouTubeRepository implements PlaylistSource, MusicCatalog {
         }
         return new Tracks(title,new ArrayList<>(tracks.values()),Page.isValid(more)?more:null);
     }
-    public String resolve(String id) throws IOException {return audio(id,false).url();}
-    public AudioSource audio(String id,boolean refresh) throws IOException {
-        Cached lookup;
-        synchronized(cache){
-            Cached found=cache.get(id);
-            if(!refresh&&found!=null&&found.expires()>System.currentTimeMillis())return found.audio();
-            // A refresh or invalidation can supersede this lookup while it is on the network.
-            lookup=new Cached(null,0);
-            cache.put(id,lookup);
-        }
+    public String resolve(String id)throws IOException{return audio(id,false).url();}
+    public AudioSource audio(String id,boolean refresh)throws IOException{return audioCache.get(id,refresh,this::extractAudio);}
+    private AudioSource extractAudio(String id)throws IOException{
         try{
-            var extractor=ServiceList.YouTube.getStreamExtractor(VideoIds.url(id));
-            extractor.fetchPage();
-            AudioStream chosen=extractor.getAudioStreams().stream().filter(s->s.isUrl()&&s.getDeliveryMethod()==DeliveryMethod.PROGRESSIVE_HTTP)
+            StreamExtractor info=ServiceList.YouTube.getStreamExtractor("https://music.youtube.com/watch?v="+id);info.fetchPage();
+            AudioStream chosen=info.getAudioStreams().stream().filter(s->s.isUrl()&&s.getDeliveryMethod()==DeliveryMethod.PROGRESSIVE_HTTP)
                 .max(Comparator.comparingInt(AudioStream::getAverageBitrate)).orElseThrow(()->new IOException("No playable audio stream is available for this video."));
             String url=chosen.getContent();if(!url.startsWith("https://"))throw new IOException("The audio source did not provide a secure stream.");
             long length=0;String raw=java.net.URI.create(url).getRawQuery();
             if(raw!=null)for(String param:raw.split("&"))if(param.startsWith("clen="))try{length=Long.parseLong(param.substring(5));}catch(NumberFormatException ignored){}
             String mime=chosen.getFormat()==null?"application/octet-stream":chosen.getFormat().getMimeType();
             AudioSource audio=new AudioSource(url,mime,chosen.getId(),Math.max(0,length));
-            synchronized(cache){
-                if(cache.get(id)==lookup)cache.put(id,new Cached(audio,System.currentTimeMillis()+15*60*1000));
-            }
             return audio;
         }catch(IOException e){throw e;}catch(Exception e){throw new IOException("YouTube could not provide audio. The video may be restricted, or the extractor may need an update.",e);}
     }
-    public void invalidate(String id){synchronized(cache){cache.remove(id);}}
+    public void invalidate(String id){audioCache.invalidate(id);}
     private Track from(StreamInfo s){return new Track(VideoIds.parse(s.getUrl()),s.getName(),s.getUploaderName()==null?"Unknown artist":s.getUploaderName(),Artwork.largest(s.getThumbnails()),s.getDuration());}
 }

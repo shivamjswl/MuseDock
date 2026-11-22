@@ -1,0 +1,101 @@
+/workspace/MuseDock/app/src/main/AndroidManifest.xml:11: Warning: The attribute android:dataExtractionRules only applies for Android 12 and higher; since minSdkVersion is API 29 you should also set android:fullBackupContent [DataExtractionRules]
+        android:icon="@drawable/ic_launcher" android:allowBackup="false" android:dataExtractionRules="@xml/backup_rules" android:supportsRtl="true"
+                                                                                                      ~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "DataExtractionRules":
+   Before Android 12, the attributes android:allowBackup and
+   android:fullBackupContent were used to configure all forms of backup,
+   including cloud backups, device-to-device transfers and adb backup.
+
+   In Android 12 and higher, these attributes have been deprecated and will
+   only apply to cloud backups. You should instead use the attribute
+   android:dataExtractionRules, specifying an @xml resource that configures
+   which files to back up, for cloud backups and for device-to-device
+   transfers, separately. If your minSdkVersion supports older versions,
+   you'll still want to specify an android:fullBackupContent resource if the
+   default behavior is not right for your app.
+
+   https://developer.android.com/about/versions/12/backup-restore#xml-changes
+   https://goo.gle/DataExtractionRules
+
+/workspace/MuseDock/app/src/main/java/app/cadence/OfflineService.java:52: Warning: Consider also using StorageManager#getAllocatableBytes and allocateBytes which will consider clearable cached data [UsableSpace]
+                        checkCancelled(id);if(dir.getUsableSpace()<16*1024*1024L)throw new IOException("Device storage is full. Free space and tap Retry.");
+                                                  ~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/OfflineService.java:63: Warning: Consider also using StorageManager#getAllocatableBytes and allocateBytes which will consider clearable cached data [UsableSpace]
+                Mp3Converter.convert(original,destination,(position,duration)->{checkCancelled(id);if(dir.getUsableSpace()<16*1024*1024L)throw new IOException("Not enough storage to finish MP3 conversion.");report("Converting to MP3 · "+track.title(),position,duration,id,true);});
+                                                                                                          ~~~~~~~~~~~~~~
+
+   Explanation for issues of type "UsableSpace":
+   When you need to allocate disk space for large files, consider using the
+   new allocateBytes(FileDescriptor, long) API, which will automatically clear
+   cached files belonging to other apps (as needed) to meet your request.
+
+   When deciding if the device has enough disk space to hold your new data,
+   call getAllocatableBytes(UUID) instead of using getUsableSpace(), since the
+   former will consider any cached data that the system is willing to clear on
+   your behalf.
+
+   Note that these methods require API level 26. If your app is running on
+   older devices, you will probably need to use both APIs, conditionally
+   switching on Build.VERSION.SDK_INT. Lint only looks in the same compilation
+   unit to see if you are already using both APIs, so if it warns even though
+   you are already using the new API, consider moving the calls to the same
+   file or suppressing the warning.
+
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:18: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        Switch enabled=new Switch(activity);enabled.setText("Equalizer enabled");enabled.setTextColor(palette.foreground());enabled.setChecked(equalizer.enabled());enabled.setOnCheckedChangeListener((v,on)->{equalizer.setEnabled(on);updateStatus();});page.addView(enabled,new LinearLayout.LayoutParams(-1,dp(52)));
+                                                            ~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:23: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        TextView advanced=text(17);advanced.setText("Fine tune");advanced.setPadding(0,dp(16),0,dp(12));page.addView(advanced);
+                                                    ~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:24: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        TextView preampTitle=text(13);preampTitle.setText("Preamp · output attenuation");page.addView(preampTitle);LinearLayout gainRow=row();preamp=slider(1200,"Preamp attenuation");gainRow.addView(preamp,new LinearLayout.LayoutParams(0,dp(46),1));preampValue=text(12);gainRow.addView(preampValue,new LinearLayout.LayoutParams(dp(64),-2));page.addView(gainRow);preamp.setOnSeekBarChangeListener(change((value,user)->{preampValue.setText(db(value-1200));if(user){equalizer.setPreamp(value-1200);updateStatus();}}));
+                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:25: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        TextView balanceTitle=text(13);balanceTitle.setText("Stereo balance · left / right");page.addView(balanceTitle);LinearLayout balanceRow=row();balance=slider(200,"Stereo balance");balanceRow.addView(balance,new LinearLayout.LayoutParams(0,dp(46),1));balanceValue=text(12);balanceRow.addView(balanceValue,new LinearLayout.LayoutParams(dp(64),-2));page.addView(balanceRow);balance.setOnSeekBarChangeListener(change((value,user)->{int b=value-100;balanceValue.setText(b==0?"Center":(b<0?"L ":"R ")+Math.abs(b)+"%");if(user)equalizer.setBalance(b);}));
+                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:26: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        headroom=new Switch(activity);headroom.setText("Auto headroom");headroom.setTextSize(14);headroom.setTextColor(palette.foreground());headroom.setOnCheckedChangeListener((v,on)->{equalizer.setHeadroom(on);updateStatus();});page.addView(headroom,new LinearLayout.LayoutParams(-1,dp(48)));TextView help=text(11);help.setText("Reduces player gain for boosted tone bands. Balance applies to stereo PCM. The master toggle bypasses all sound adjustments.");page.addView(help);
+                                                       ~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:26: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        headroom=new Switch(activity);headroom.setText("Auto headroom");headroom.setTextSize(14);headroom.setTextColor(palette.foreground());headroom.setOnCheckedChangeListener((v,on)->{equalizer.setHeadroom(on);updateStatus();});page.addView(headroom,new LinearLayout.LayoutParams(-1,dp(48)));TextView help=text(11);help.setText("Reduces player gain for boosted tone bands. Balance applies to stereo PCM. The master toggle bypasses all sound adjustments.");page.addView(help);
+                                                                                                                                                                                                                                                                                                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:27: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        LinearLayout saved=row();Button save=new Button(activity);save.setAllCaps(false);save.setText("Save as preset");save.setOnClickListener(v->savePreset());saved.addView(save,new LinearLayout.LayoutParams(0,-2,1));Button load=new Button(activity);load.setAllCaps(false);load.setText("Saved presets");load.setOnClickListener(v->savedPresets(false));saved.addView(load,new LinearLayout.LayoutParams(0,-2,1));page.addView(saved);
+                                                                                                      ~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:27: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        LinearLayout saved=row();Button save=new Button(activity);save.setAllCaps(false);save.setText("Save as preset");save.setOnClickListener(v->savePreset());saved.addView(save,new LinearLayout.LayoutParams(0,-2,1));Button load=new Button(activity);load.setAllCaps(false);load.setText("Saved presets");load.setOnClickListener(v->savedPresets(false));saved.addView(load,new LinearLayout.LayoutParams(0,-2,1));page.addView(saved);
+                                                                                                                                                                                                                                                                                                ~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:28: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        Button reset=new Button(activity);reset.setAllCaps(false);reset.setText("Reset sound settings");reset.setOnClickListener(v->{equalizer.reset();refresh();});page.addView(reset);TextView note=text(11);note.setText("Tone-band support and gain limits depend on the audio output. Settings and custom presets stay on this device.");page.addView(note);
+                                                                                ~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:28: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        Button reset=new Button(activity);reset.setAllCaps(false);reset.setText("Reset sound settings");reset.setOnClickListener(v->{equalizer.reset();refresh();});page.addView(reset);TextView note=text(11);note.setText("Tone-band support and gain limits depend on the audio output. Settings and custom presets stay on this device.");page.addView(note);
+                                                                                                                                                                                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:37: Warning: Do not concatenate text displayed with setText. Use resource string with placeholders. [SetTextI18n]
+    private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve · "+equalizer.preset());if(curve!=null)curve.invalidate();}
+                                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/EqualizerPanel.java:37: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+    private void updateStatus(){status.setText(equalizer.status());preset.setText("Curve · "+equalizer.preset());if(curve!=null)curve.invalidate();}
+                                                                                  ~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/MainActivity.java:640: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        RadioGroup formats=new RadioGroup(this);RadioButton original=new RadioButton(this);original.setId(View.generateViewId());original.setText("Original audio · Faster, smaller");original.setTextColor(FG);formats.addView(original);
+                                                                                                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/workspace/MuseDock/app/src/main/java/app/cadence/MainActivity.java:641: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+        RadioButton mp3=new RadioButton(this);mp3.setId(View.generateViewId());mp3.setText("MP3 · Convert on this device");mp3.setTextColor(FG);formats.addView(mp3);formats.check(original.getId());choices.addView(formats);space(choices,10);choices.addView(text("MP3 conversion takes extra time and storage. Interrupted transfers can continue when you retry.",12,MUTED,false));
+                                                                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "SetTextI18n":
+   When calling TextView#setText
+   * Never call Number#toString() to format numbers; it will not handle
+   fraction separators and locale-specific digits properly. Consider using
+   String#format with proper format specifications (%d or %f) instead.
+   * Do not pass a string literal (e.g. "Hello") to display text. Hardcoded
+   text can not be properly translated to other languages. Consider using
+   Android resource strings instead.
+   * Do not build messages by concatenating text chunks. Such messages can not
+   be properly translated.
+
+   https://developer.android.com/guide/topics/resources/localization.html
+
+0 errors, 17 warnings

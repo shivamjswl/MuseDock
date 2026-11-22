@@ -1,4 +1,5 @@
 plugins { id 'com.android.application' }
+def releaseKey = providers.environmentVariable('MUSEDOCK_KEYSTORE').orNull
 def googleClient = providers.gradleProperty('googleWebClientId').getOrElse('')
 def googleEnabled = !googleClient.isBlank() || providers.gradleProperty('googleSignIn').getOrElse('false').toBoolean()
 android {
@@ -10,8 +11,8 @@ android {
         applicationId 'app.cadence'
         minSdk 29
         targetSdk 37
-        versionCode 9
-        versionName '0.9.0'
+        versionCode 10
+        versionName '0.9.1'
         resValue 'string', 'app_version', versionName
         resValue 'string', 'google_web_client_id', googleClient
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
@@ -22,8 +23,20 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    signingConfigs { debug { enableV2Signing = true; enableV3Signing = true } }
-    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
+    signingConfigs {
+        debug { enableV2Signing = true; enableV3Signing = true }
+        if (releaseKey != null) {
+            release {
+                storeFile file(releaseKey)
+                storePassword providers.environmentVariable('MUSEDOCK_KEYSTORE_PASSWORD').get()
+                keyAlias providers.environmentVariable('MUSEDOCK_KEY_ALIAS').getOrElse('androiddebugkey')
+                keyPassword providers.environmentVariable('MUSEDOCK_KEY_PASSWORD').get()
+                enableV2Signing = true; enableV3Signing = true
+            }
+        }
+    }
+    // Never silently replace the published app's signing identity with a freshly generated debug key.
+    buildTypes { release { minifyEnabled false; if (releaseKey != null) signingConfig signingConfigs.release } }
     testOptions {
         unitTests.includeAndroidResources = true
         unitTests.all {
@@ -65,4 +78,16 @@ dependencies {
     androidTestImplementation 'androidx.test:runner:1.6.2'
     androidTestImplementation 'androidx.test:core:1.6.1'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}
+
+if (releaseKey != null) {
+    tasks.register('verifyReleaseIdentity') {
+        doLast {
+            def keyStore = java.security.KeyStore.getInstance(file(releaseKey), providers.environmentVariable('MUSEDOCK_KEYSTORE_PASSWORD').get().toCharArray())
+            def cert = keyStore.getCertificate(providers.environmentVariable('MUSEDOCK_KEY_ALIAS').getOrElse('androiddebugkey'))
+            def digest = java.security.MessageDigest.getInstance('SHA-256').digest(cert.encoded).encodeHex().toString()
+            if (digest != '38e32e997464806ba585d116b36dde477b5fc815f4059f793ede084c7114c505') throw new GradleException('Release key does not match the published MuseDock installation. Do not distribute it as an update.')
+        }
+    }
+    tasks.matching { it.name == 'preReleaseBuild' }.configureEach { dependsOn 'verifyReleaseIdentity' }
 }

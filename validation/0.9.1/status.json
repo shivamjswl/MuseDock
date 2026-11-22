@@ -1,0 +1,1 @@
+{"version":"0.9.1","core_tests":{"tests":26,"failures":0},"android_ui_tests":"blocked before execution: gcp.mirrors.maven.org denied","application_only_lint":{"errors":0,"warnings_per_variant":17},"unsigned_release":"assembled","instrumentation_apk":"assembled, not executed","original_signing_key":"missing","replacement_key_guard":"passed","installable_update_published":false}

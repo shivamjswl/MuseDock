@@ -1,0 +1,5 @@
+package: name='app.cadence' versionCode='10' versionName='0.9.1' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'
+sdkVersion:'29'
+targetSdkVersion:'37'
+application: label='MuseDock' icon='res/r2.xml'
+Unsigned output: not published or offered as an update.

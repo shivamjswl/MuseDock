@@ -18,9 +18,9 @@ Personalization is an original on-device ranking layer over public YouTube Music
 
 Playlist descriptions, pinning, duplication, merging, sorting, bulk removal, suggested additions, downloads and the expanded equalizer from 0.8 remain available.
 
-## Install the update
+## Install the app
 
-Download `MuseDock-0.9.0.apk` above and open it on the phone to update the existing installation. The application ID and signing certificate match previous supplied builds. Existing data is retained by a compatible Android update; uninstalling clears app-private data.
+Download `MuseDock-0.9.0.apk` above and open it on the phone.
 
 This is a non-debuggable APK signed with the existing development key, not a Play Store release. Actual installation on the affected Pixel, live YouTube behavior, and device codec behavior still need phone testing.
 
